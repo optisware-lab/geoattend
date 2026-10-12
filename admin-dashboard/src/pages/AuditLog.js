@@ -143,7 +143,7 @@ export default function AuditLog() {
               SMTP_PORT=587<br/>
               SMTP_USER=your@email.com<br/>
               SMTP_PASS=your_app_password<br/>
-              SMTP_FROM="Benbax GeoAttend" &lt;noreply@geoattend.app&gt;
+              SMTP_FROM="GeoAttend" &lt;noreply@geoattend.app&gt;
             </div>
           </div>
 
@@ -155,7 +155,7 @@ export default function AuditLog() {
             <div style={{ background: '#f8f9fa', padding: '10px', borderRadius: '6px', fontSize: '11px', fontFamily: 'monospace', color: '#555' }}>
               SMS_PROVIDER=arkesel<br/>
               SMS_API_KEY=your_api_key<br/>
-              SMS_SENDER_ID=Benbax GeoAttend
+              SMS_SENDER_ID=GeoAttend
             </div>
           </div>
         </div>

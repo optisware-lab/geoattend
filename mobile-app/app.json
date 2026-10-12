@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Benbax GeoAttend",
+    "name": "GeoAttend",
     "slug": "geoattend",
     "version": "2.0.0",
-    "scheme": "com.geoattend.app",
+    "scheme": "com.optisware.geoattend",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
       "adaptiveIcon": {
         "backgroundColor": "#1a5276"
       },
-      "package": "com.geoattend.app",
+      "package": "com.optisware.geoattend",
       "versionCode": 2,
       "permissions": [
         "ACCESS_FINE_LOCATION",
@@ -31,34 +31,30 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow Benbax GeoAttend to use your location for attendance check-in."
+          "locationAlwaysAndWhenInUsePermission": "Allow GeoAttend to use your location for attendance check-in."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Benbax GeoAttend to access your camera for QR code scanning."
+          "cameraPermission": "Allow GeoAttend to access your camera for QR code scanning."
         }
       ]
     ],
     "extra": {
-      "API_BASE_URL": "https://geofence-app-jjpa.onrender.com/api",
-      "eas": {
-        "projectId": "78e28028-39aa-427d-a03e-f7bec5eb6c77"
-      }
+      "API_BASE_URL": "https://geofence-app-jjpa.onrender.com/api"
     },
     "runtimeVersion": "2.0.0",
     "ios": {
-      "bundleIdentifier": "com.geoattend.app",
+      "bundleIdentifier": "com.optisware.geoattend",
       "buildNumber": "2",
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Benbax GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Benbax GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
-        "NSCameraUsageDescription": "Benbax GeoAttend needs camera access to scan QR codes for attendance check-in.",
-        "NSFaceIDUsageDescription": "Benbax GeoAttend uses Face ID to securely log you in."
+        "NSLocationWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
+        "NSCameraUsageDescription": "GeoAttend needs camera access to scan QR codes for attendance check-in.",
+        "NSFaceIDUsageDescription": "GeoAttend uses Face ID to securely log you in."
       }
-    },
-    "owner": "benbax-expo"
+    }
   }
 }

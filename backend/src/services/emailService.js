@@ -30,7 +30,7 @@ async function sendEmail({ to, subject, html }) {
 
   try {
     const info = await t.sendMail({
-      from: process.env.SMTP_FROM || '"Benbax GeoAttend" <noreply@geoattend.app>',
+      from: process.env.SMTP_FROM || '"GeoAttend" <noreply@geoattend.app>',
       to,
       subject,
       html,
@@ -68,7 +68,7 @@ async function sendAbsenceAlert({ adminEmails, absentMembers, date, institutionN
         </table>
       </div>
       <div style="padding:12px 20px;background:#f8f8f8;border-radius:0 0 8px 8px;font-size:12px;color:#999">
-        Automated report from Benbax GeoAttend
+        Automated report from GeoAttend
       </div>
     </div>`;
 
@@ -110,7 +110,7 @@ async function sendDailySummary({ adminEmails, stats, date, institutionName }) {
         </p>
       </div>
       <div style="padding:12px 20px;background:#f8f8f8;border-radius:0 0 8px 8px;font-size:12px;color:#999">
-        Automated daily report from Benbax GeoAttend
+        Automated daily report from GeoAttend
       </div>
     </div>`;
 
@@ -149,7 +149,7 @@ async function sendWeeklySummary({ adminEmails, weekData, institutionName, weekR
         </table>
       </div>
       <div style="padding:12px 20px;background:#f8f8f8;border-radius:0 0 8px 8px;font-size:12px;color:#999">
-        Automated weekly report from Benbax GeoAttend
+        Automated weekly report from GeoAttend
       </div>
     </div>`;
 
@@ -166,7 +166,7 @@ async function sendAutoSuspendNotice({ email, name, staffId, reason }) {
       </div>
       <div style="padding:20px;background:#fff;border:1px solid #e0e0e0">
         <p>Hello ${name},</p>
-        <p>Your Benbax GeoAttend account (<strong>${staffId}</strong>) has been automatically suspended due to:</p>
+        <p>Your GeoAttend account (<strong>${staffId}</strong>) has been automatically suspended due to:</p>
         <p style="background:#fff3cd;padding:12px;border-radius:6px;border-left:4px solid #f39c12">
           ${reason}
         </p>
@@ -174,7 +174,7 @@ async function sendAutoSuspendNotice({ email, name, staffId, reason }) {
       </div>
     </div>`;
 
-  await sendEmail({ to: email, subject: 'Benbax GeoAttend: Account Suspended', html });
+  await sendEmail({ to: email, subject: 'GeoAttend: Account Suspended', html });
 }
 
 module.exports = {

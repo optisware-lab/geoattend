@@ -286,12 +286,12 @@ function InstitutionQR() {
         @media print { body { padding: 0; } }
       </style></head><body>
       <div class="card">
-        <div class="logo">Benbax GeoAttend</div>
+        <div class="logo">GeoAttend</div>
         <div class="subtitle">Attendance Check-In</div>
         <img src="${qrCode}" />
         <div class="name">${institutionName}</div>
-        <div class="instruction">Open Benbax GeoAttend app → QR Scan → Scan this code</div>
-        <div class="footer">Powered by Benbax Software Developers</div>
+        <div class="instruction">Open GeoAttend app → QR Scan → Scan this code</div>
+        <div class="footer">Powered by Optisware</div>
       </div>
       <script>window.print();</script>
       </body></html>
@@ -323,7 +323,7 @@ function InstitutionQR() {
         await navigator.share({
           files: [file],
           title: `${institutionName} Check-In QR Code`,
-          text: `Scan this QR code with the Benbax GeoAttend app to check in at ${institutionName}.`,
+          text: `Scan this QR code with the GeoAttend app to check in at ${institutionName}.`,
         });
         return;
       }

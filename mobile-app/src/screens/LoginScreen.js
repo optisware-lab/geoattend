@@ -167,7 +167,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
           <View style={styles.iconCircle}>
             <Text style={styles.iconText}>G</Text>
           </View>
-          <Text style={styles.appName}>Benbax GeoAttend</Text>
+          <Text style={styles.appName}>GeoAttend</Text>
           <Text style={styles.subtitle}>Staff Attendance System</Text>
         </View>
 
@@ -269,7 +269,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
         </TouchableOpacity>
 
         <Text style={styles.footer}>Geofenced Staff Attendance System</Text>
-        <Text style={styles.powered}>Powered by Benbax software developers</Text>
+        <Text style={styles.powered}>Powered by Optisware</Text>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

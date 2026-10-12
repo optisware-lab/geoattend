@@ -1,4 +1,4 @@
-package com.geoattend.app
+package com.optisware.geoattend
 
 import android.app.Application
 import android.content.res.Configuration

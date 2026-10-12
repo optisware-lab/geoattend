@@ -163,7 +163,7 @@ export default function Reports() {
   };
 
   const handleWhatsAppShare = () => {
-    const text = `Benbax GeoAttend Staff Report
+    const text = `GeoAttend Staff Report
 Today: ${todaySummary.present || 0} present, ${todaySummary.late || 0} late, ${todaySummary.absent || 0} absent.
 Filters: ${filters.startDate || 'all'} to ${filters.endDate || 'all'}, Dept: ${filters.department || 'all'}.`;
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;

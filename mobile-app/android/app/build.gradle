@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.geoattend.app'
+    namespace 'com.optisware.geoattend'
     defaultConfig {
-        applicationId 'com.geoattend.app'
+        applicationId 'com.optisware.geoattend'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

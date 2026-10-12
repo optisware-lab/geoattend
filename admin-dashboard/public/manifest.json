@@ -1,6 +1,6 @@
 {
-  "short_name": "Benbax GeoAttend",
-  "name": "Benbax GeoAttend Admin Dashboard",
+  "short_name": "GeoAttend",
+  "name": "GeoAttend Admin Dashboard",
   "description": "Geofenced Attendance Management System",
   "icons": [
     {

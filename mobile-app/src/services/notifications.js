@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import api from './api';
 
 Notifications.setNotificationHandler({
@@ -33,7 +34,7 @@ export async function registerForPushNotifications() {
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('default', {
-        name: 'Benbax GeoAttend',
+        name: 'GeoAttend',
         importance: Notifications.AndroidImportance.HIGH,
         vibrationPattern: [0, 250, 250, 250],
       });
@@ -42,7 +43,7 @@ export async function registerForPushNotifications() {
     // getExpoPushTokenAsync requires a development build in SDK 53+
     // It will fail in Expo Go — catch and return null gracefully
     const token = (await Notifications.getExpoPushTokenAsync({
-      projectId: '4a453cbb-ffe6-48dc-9c41-a1ca2c3866b8',
+      projectId: Constants.expoConfig?.extra?.eas?.projectId,
     })).data;
 
     try {

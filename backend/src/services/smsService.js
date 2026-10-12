@@ -3,7 +3,7 @@ const https = require('https');
 const sendSMS = async (to, message) => {
   const provider = process.env.SMS_PROVIDER || 'none';
   const apiKey = process.env.SMS_API_KEY;
-  const senderId = process.env.SMS_SENDER_ID || 'Benbax GeoAttend';
+  const senderId = process.env.SMS_SENDER_ID || 'GeoAttend';
 
   if (provider === 'none' || !apiKey) {
     console.log(`[SMS MOCK] To: ${to} | Message: ${message}`);
@@ -64,15 +64,15 @@ const sendSMS = async (to, message) => {
 };
 
 const sendCheckInReminder = async (phone, name) => {
-  return sendSMS(phone, `Hi ${name}, this is a reminder to check in at work today. - Benbax GeoAttend`);
+  return sendSMS(phone, `Hi ${name}, this is a reminder to check in at work today. - GeoAttend`);
 };
 
 const sendLateAlert = async (phone, name, time) => {
-  return sendSMS(phone, `${name}, you checked in late today at ${time}. Please ensure punctuality. - Benbax GeoAttend`);
+  return sendSMS(phone, `${name}, you checked in late today at ${time}. Please ensure punctuality. - GeoAttend`);
 };
 
 const sendAbsentAlert = async (phone, name, date) => {
-  return sendSMS(phone, `${name}, you were absent on ${date}. If this is an error, please contact your admin. - Benbax GeoAttend`);
+  return sendSMS(phone, `${name}, you were absent on ${date}. If this is an error, please contact your admin. - GeoAttend`);
 };
 
 module.exports = {

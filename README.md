@@ -1,4 +1,4 @@
-# Benbax GeoAttend - Geofenced Attendance Management System
+# GeoAttend - Geofenced Attendance Management System
 
 A complete attendance management system designed for institutions in Ghana, featuring GPS geofence verification, QR code check-in, and comprehensive reporting.
 

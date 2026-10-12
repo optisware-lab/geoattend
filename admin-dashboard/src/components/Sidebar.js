@@ -152,7 +152,7 @@ export default function Sidebar({ user, onLogout }) {
       <aside style={sidebarStyle}>
         <div style={styles.logo}>
           <FiMapPin style={styles.logoIcon} />
-          <span style={styles.logoText}>Benbax GeoAttend</span>
+          <span style={styles.logoText}>GeoAttend</span>
         </div>
 
         <nav style={styles.nav}>

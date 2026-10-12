@@ -1,4 +1,4 @@
-package com.geoattend.app
+package com.optisware.geoattend
 
 import android.os.Build
 import android.os.Bundle

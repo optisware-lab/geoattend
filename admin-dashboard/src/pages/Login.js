@@ -121,7 +121,7 @@ export default function Login({ onLogin }) {
       <div style={styles.card}>
         <div style={styles.logo}>
           <FiMapPin size={32} />
-          <span style={styles.title}>Benbax GeoAttend</span>
+          <span style={styles.title}>GeoAttend</span>
         </div>
         <p style={styles.subtitle}>Admin Dashboard - Sign in to continue</p>
 
