@@ -11,7 +11,7 @@ const API_BASE_URL =
   Constants.manifest?.extra?.API_BASE_URL ||
   // Fallback to a common developer LAN address — update .env if different
   'http://10.46.11.236:5000/api' ||
-  'https://geofence-app-jjpa.onrender.com/api';
+  'https://geoattend-api-pc49.onrender.com/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,

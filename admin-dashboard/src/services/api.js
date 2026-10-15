@@ -6,7 +6,7 @@ function resolveApiBaseUrl() {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
     return envUrl || 'http://localhost:5000/api';
   }
-  return envUrl || 'https://geofence-app-jjpa.onrender.com/api';
+  return envUrl || 'https://geoattend-api-pc49.onrender.com/api';
 }
 
 const API_BASE_URL = resolveApiBaseUrl();

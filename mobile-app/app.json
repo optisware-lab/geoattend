@@ -42,7 +42,7 @@
       ]
     ],
     "extra": {
-      "API_BASE_URL": "https://geofence-app-jjpa.onrender.com/api"
+      "API_BASE_URL": "https://geoattend-api-pc49.onrender.com/api"
     },
     "runtimeVersion": "2.0.0",
     "ios": {
