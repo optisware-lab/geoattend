@@ -72,9 +72,11 @@ export const updateInstitution = (data) => api.put('/institutions/current', data
 export const getInstitutionQR = () => api.get('/institutions/qr-code');
 export const getAttendanceRules = (params) => api.get('/institutions/rules', { params });
 export const updateAttendanceRules = (data, params) => api.put('/institutions/rules', data, { params });
-export const createInstitution = (data) => api.post('/institutions', data);
+// Long timeout: the free Render instance can take ~50s to wake up
+export const createInstitution = (data) => api.post('/institutions', data, { timeout: 90000 });
 export const getAllInstitutions = () => api.get('/institutions');
-export const repairInstitutionCode = (id) => api.post(`/institutions/${id}/repair-code`);
+export const deleteInstitution = (id) => api.delete(`/institutions/${id}`);
+export const repairInstitutionCode =(id) => api.post(`/institutions/${id}/repair-code`);
 export const getInstitutionAdminCredentials = (id) => api.get(`/institutions/${id}/admin-credentials`);
 export const createInstitutionAdminCredentials = (id) => api.post(`/institutions/${id}/admin-credentials`);
 // Subscriptions / Billing

@@ -3,6 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { generateInstitutionQR } = require('../utils/qrcode');
+const { logAudit } = require('../middleware/audit');
 const {
   DEFAULT_TRIAL_DAYS,
   ensureTrialSubscription,
@@ -102,6 +103,7 @@ exports.getAllInstitutions = async (req, res) => {
         COALESCE(sc.staff_count, 0) AS staff_count,
         COALESCE(sc.active_staff_count, 0) AS active_staff_count,
         COALESCE(sc.admin_count, 0) AS admin_count,
+        COALESCE(sc.super_admin_count, 0) AS super_admin_count,
         sub.plan_name AS subscription_plan,
         sub.status AS subscription_status,
         sub.trial_end AS subscription_trial_end,
@@ -112,7 +114,8 @@ exports.getAllInstitutions = async (req, res) => {
           institution_id,
           COUNT(*) AS staff_count,
           COUNT(*) FILTER (WHERE is_active) AS active_staff_count,
-          COUNT(*) FILTER (WHERE role IN ('admin', 'super_admin')) AS admin_count
+          COUNT(*) FILTER (WHERE role IN ('admin', 'super_admin')) AS admin_count,
+          COUNT(*) FILTER (WHERE role = 'super_admin') AS super_admin_count
         FROM staff
         GROUP BY institution_id
       ) sc ON sc.institution_id = i.id
@@ -132,16 +135,37 @@ exports.getAllInstitutions = async (req, res) => {
   }
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Institution + its stored admin credentials, as returned by createInstitution
+async function getCreatedInstitution(id) {
+  const inst = await pool.query('SELECT * FROM institutions WHERE id = $1', [id]);
+  if (inst.rows.length === 0) return null;
+  const creds = await pool.query(
+    'SELECT admin_staff_id, admin_password FROM institution_admin_credentials WHERE institution_id = $1',
+    [id]
+  );
+  const adminCredentials = creds.rows[0]
+    ? { staffId: creds.rows[0].admin_staff_id, password: creds.rows[0].admin_password }
+    : undefined;
+  return { ...inst.rows[0], adminCredentials, alreadyCreated: true };
+}
+
 exports.createInstitution = async (req, res) => {
   const client = await pool.connect();
   try {
-    const { name, address, city, region, latitude, longitude, geofenceRadius } = req.body;
+    const { name, address, city, region, latitude, longitude, geofenceRadius, requestId } = req.body;
 
     if (!name || !latitude || !longitude) {
       return res.status(400).json({ error: 'Name, latitude, and longitude are required' });
     }
 
-    const id = uuidv4();
+    // The dashboard sends one requestId per form submission and reuses it on
+    // retries (e.g. after a timeout while Render wakes up). Using it as the id
+    // makes a repeated request return the first institution instead of a duplicate.
+    const id = UUID_PATTERN.test(String(requestId || '')) ? String(requestId).toLowerCase() : uuidv4();
+    const existing = await getCreatedInstitution(id);
+    if (existing) return res.json(existing);
 
     await client.query('BEGIN');
 
@@ -218,6 +242,11 @@ exports.createInstitution = async (req, res) => {
     res.status(201).json({ ...created, adminCredentials });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
+    // A concurrent retry of the same request committed first — return that one
+    if (err.code === '23505' && err.constraint === 'institutions_pkey') {
+      const existing = await getCreatedInstitution(req.body.requestId).catch(() => null);
+      if (existing) return res.json(existing);
+    }
     console.error('Create institution error:', err);
     const debug = process.env.NODE_ENV !== 'production' ? err.message : undefined;
     res.status(500).json({ error: 'Server error', ...(debug && { debug }) });
@@ -249,6 +278,64 @@ exports.repairInstitutionCode = async (req, res) => {
   } catch (err) {
     console.error('Repair institution code error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Super admin: permanently delete an institution and everything that belongs to it
+// (staff, attendance, leave, subscriptions, ... all cascade from institutions).
+exports.deleteInstitution = async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+  try {
+    const existing = await client.query(
+      `SELECT i.id, i.name, i.institution_code,
+              (SELECT COUNT(*) FROM staff s WHERE s.institution_id = i.id) AS staff_count,
+              (SELECT COUNT(*) FROM staff s WHERE s.institution_id = i.id AND s.role = 'super_admin') AS super_admin_count
+       FROM institutions i WHERE i.id = $1`,
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Institution not found' });
+    }
+    const institution = existing.rows[0];
+
+    // Deleting this would cascade-delete the super admin account(s) themselves
+    if (id === req.user.institution_id || parseInt(institution.super_admin_count, 10) > 0) {
+      return res.status(400).json({ error: 'This institution holds a super admin account and cannot be deleted' });
+    }
+
+    await client.query('BEGIN');
+    // leave_requests.reviewed_by has no ON DELETE action; detach reviews this
+    // institution's staff made in other institutions so the cascade can't fail.
+    await client.query(
+      `UPDATE leave_requests SET reviewed_by = NULL
+       WHERE institution_id <> $1 AND reviewed_by IN (SELECT id FROM staff WHERE institution_id = $1)`,
+      [id]
+    );
+    await client.query('DELETE FROM institutions WHERE id = $1', [id]);
+    await client.query('COMMIT');
+
+    // Log against the super admin's own institution so the entry survives the cascade
+    logAudit({
+      institutionId: req.user.institution_id,
+      action: 'delete_institution',
+      entityType: 'institution',
+      entityId: id,
+      details: { name: institution.name, code: institution.institution_code, staffCount: parseInt(institution.staff_count, 10) },
+      performedBy: req.user.id,
+      ipAddress: req.ip,
+    });
+
+    res.json({ message: `${institution.name} deleted`, id });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Delete institution error:', err);
+    if (err.code === '23503') {
+      return res.status(409).json({ error: 'Institution still has linked records that block deletion' });
+    }
+    res.status(500).json({ error: 'Server error' });
+  } finally {
+    client.release();
   }
 };
 

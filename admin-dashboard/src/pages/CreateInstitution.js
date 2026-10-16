@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { createInstitution, getAllInstitutions, repairInstitutionCode, createInitialAdmin } from '../services/api';
+import LocationPicker from '../components/LocationPicker';
+
+// "5.70765, -0.00335" as copied from Google Maps (right-click on the map)
+function newRequestId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === 'x' ? r : (r % 4) + 8).toString(16);
+  });
+}
+
+const COORD_PAIR = /^\s*\(?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)?\s*$/;
 
 const styles = {
   container: { maxWidth: 760, margin: '0 auto' },
@@ -31,6 +43,8 @@ export default function CreateInstitution() {
   const [adminCredentials, setAdminCredentials] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  // One id per institution being created; resent on retries so the server never makes duplicates
+  const [requestId, setRequestId] = useState(newRequestId);
 
   // load draft from localStorage
   useEffect(() => {
@@ -47,6 +61,7 @@ export default function CreateInstitution() {
             latitude: d.latitude === null || d.latitude === undefined ? '' : String(d.latitude),
             longitude: d.longitude === null || d.longitude === undefined ? '' : String(d.longitude),
             geofenceRadius: Number.isFinite(Number(d.geofenceRadius)) ? Number(d.geofenceRadius) : 200,
+            requestId: typeof d.requestId === 'string' && d.requestId ? d.requestId : null,
           };
 
           const hasAny =
@@ -60,6 +75,7 @@ export default function CreateInstitution() {
             setLatitude(restored.latitude);
             setLongitude(restored.longitude);
             setGeofenceRadius(restored.geofenceRadius);
+            if (restored.requestId) setRequestId(restored.requestId);
             toast.info('Draft restored for Create Institution');
             setHasDraft(true);
           } else {
@@ -76,19 +92,39 @@ export default function CreateInstitution() {
   // persist draft to localStorage when fields change
   useEffect(() => {
     try {
-      const draft = { name, address, city, region, latitude, longitude, geofenceRadius };
+      const draft = { name, address, city, region, latitude, longitude, geofenceRadius, requestId };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
       setHasDraft(!!(name || address || city || region || latitude || longitude));
     } catch (e) {}
-  }, [name, address, city, region, latitude, longitude, geofenceRadius]);
+  }, [name, address, city, region, latitude, longitude, geofenceRadius, requestId]);
+
+  // Pasting a "lat, lng" pair into either box fills both
+  const handleCoordPaste = (e) => {
+    const match = COORD_PAIR.exec(e.clipboardData.getData('text'));
+    if (!match) return;
+    e.preventDefault();
+    setLatitude(match[1]);
+    setLongitude(match[2]);
+  };
 
   const submit = async (e) => {
     e && e.preventDefault();
     if (!name || !latitude || !longitude) return toast.error('Name, latitude and longitude are required');
     setCreating(true);
     try {
-      const payload = { name, address, city, region, latitude: parseFloat(latitude), longitude: parseFloat(longitude), geofenceRadius: parseInt(geofenceRadius, 10) };
-      const res = await createInstitution(payload);
+      const payload = { name, address, city, region, latitude: parseFloat(latitude), longitude: parseFloat(longitude), geofenceRadius: parseInt(geofenceRadius, 10), requestId };
+      // Retry timeouts/network errors with the same requestId — the server returns
+      // the institution it already made instead of creating another one
+      let res;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          res = await createInstitution(payload);
+          break;
+        } catch (reqErr) {
+          if (reqErr.response || attempt >= 3) throw reqErr;
+          toast.info('Server is waking up — still creating, please wait...');
+        }
+      }
       let inst = res.data;
 
       // If backend did not return an institution code, try fetching the created institution
@@ -138,9 +174,12 @@ export default function CreateInstitution() {
         toast.success('Institution created (no admin account - missing institution code)');
       }
 
+      // Clear the form so the saved draft can't resubmit the same institution
       try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+      setName(''); setAddress(''); setCity(''); setRegion(''); setLatitude(''); setLongitude(''); setGeofenceRadius(200);
+      setRequestId(newRequestId());
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to create institution');
+      toast.error(err.response?.data?.error || 'Could not reach the server. Click Create again — it will not create a duplicate.');
     } finally { setCreating(false); }
   };
 
@@ -179,7 +218,7 @@ export default function CreateInstitution() {
         </div>
         {hasDraft && (
           <div style={{ marginBottom: 12, padding: 10, background: '#fff8e1', borderRadius: 8 }}>
-            <strong>Draft saved:</strong> your entered values were restored from a draft. <button type="button" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); setHasDraft(false); setName(''); setAddress(''); setCity(''); setRegion(''); setLatitude(''); setLongitude(''); setGeofenceRadius(200); } catch(e){} }} style={{ marginLeft: 8 }}>Clear draft</button>
+            <strong>Draft saved:</strong> your entered values were restored from a draft. <button type="button" onClick={() => { try { localStorage.removeItem(DRAFT_KEY); setHasDraft(false); setName(''); setAddress(''); setCity(''); setRegion(''); setLatitude(''); setLongitude(''); setGeofenceRadius(200); setRequestId(newRequestId()); } catch(e){} }} style={{ marginLeft: 8 }}>Clear draft</button>
           </div>
         )}
         <div style={styles.row}>
@@ -211,16 +250,26 @@ export default function CreateInstitution() {
         <div style={styles.row}>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="inst-lat">Latitude *</label>
-            <input id="inst-lat" style={styles.input} placeholder="e.g. 5.7076" value={latitude} onChange={e => setLatitude(e.target.value)} />
+            <input id="inst-lat" style={styles.input} placeholder="e.g. 5.7076" value={latitude} onChange={e => setLatitude(e.target.value)} onPaste={handleCoordPaste} />
           </div>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="inst-lng">Longitude *</label>
-            <input id="inst-lng" style={styles.input} placeholder="e.g. -0.0033" value={longitude} onChange={e => setLongitude(e.target.value)} />
+            <input id="inst-lng" style={styles.input} placeholder="e.g. -0.0033" value={longitude} onChange={e => setLongitude(e.target.value)} onPaste={handleCoordPaste} />
           </div>
         </div>
+        <div style={{ fontSize: 12, color: '#7f8c8d', margin: '-4px 0 12px' }}>
+          Tip: paste coordinates copied from Google Maps (e.g. <code>5.70765, -0.00335</code>) into either box to fill both.
+        </div>
+
+        <LocationPicker
+          latitude={latitude}
+          longitude={longitude}
+          radius={geofenceRadius}
+          onChange={(lat, lng) => { setLatitude(lat); setLongitude(lng); }}
+        />
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" onClick={() => { setName(''); setAddress(''); setCity(''); setRegion(''); setLatitude(''); setLongitude(''); setGeofenceRadius(200); setCreated(null); setAdminCredentials(null); try { localStorage.removeItem(DRAFT_KEY); } catch(e) {} }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e0e0e0', background: '#fff' }}>Reset</button>
+          <button type="button" onClick={() => { setName(''); setAddress(''); setCity(''); setRegion(''); setLatitude(''); setLongitude(''); setGeofenceRadius(200); setCreated(null); setAdminCredentials(null); setRequestId(newRequestId()); try { localStorage.removeItem(DRAFT_KEY); } catch(e) {} }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid #e0e0e0', background: '#fff' }}>Reset</button>
           <button type="submit" disabled={creating} style={styles.btn('#1a5276')}>{creating ? 'Creating...' : 'Create Institution'}</button>
         </div>
 

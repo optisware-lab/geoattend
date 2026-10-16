@@ -20,7 +20,8 @@ router.put('/rules', requireAdmin, institutionController.updateAttendanceRules);
 // Super admin only
 router.get('/', requireSuperAdmin, institutionController.getAllInstitutions);
 router.post('/', requireSuperAdmin, institutionController.createInstitution);
-router.post('/:id/repair-code', requireSuperAdmin, institutionController.repairInstitutionCode);
+router.delete('/:id', requireSuperAdmin, institutionController.deleteInstitution);
+router.post('/:id/repair-code',requireSuperAdmin, institutionController.repairInstitutionCode);
 router.get('/:id/admin-credentials', requireSuperAdmin, institutionController.getAdminCredentials);
 router.post('/:id/admin-credentials', requireSuperAdmin, institutionController.createOrResetAdminCredentials);
 

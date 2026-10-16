@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
-import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock } from 'react-icons/fi';
-import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials } from '../services/api';
+import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield } from 'react-icons/fi';
+import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution } from '../services/api';
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
@@ -32,6 +32,32 @@ const styles = {
   resetBtn: { color: '#e74c3c', borderColor: '#f5c6cb' },
   revealBtn: { background: 'none', border: 'none', color: '#7f8c8d', cursor: 'pointer', padding: '2px 4px', verticalAlign: 'middle' },
   empty: { textAlign: 'center', padding: '40px', color: '#95a5a6' },
+  deleteRowBtn: {
+    padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '600',
+    border: '1px solid #f5c6cb', background: '#fff', color: '#e74c3c', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '5px',
+  },
+  modalOverlay: {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.5)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+  },
+  modal: {
+    background: '#fff', borderRadius: '12px', padding: '24px',
+    width: '440px', maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+  },
+  confirmInput: {
+    width: '100%', padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: '8px',
+    fontSize: '14px', fontFamily: 'monospace', margin: '6px 0 20px', boxSizing: 'border-box',
+  },
+  cancelBtn: {
+    padding: '8px 20px', borderRadius: '6px', fontSize: '14px',
+    background: '#f0f0f0', color: '#333', border: 'none', cursor: 'pointer',
+  },
+  deleteBtn: {
+    padding: '8px 20px', borderRadius: '6px', fontSize: '14px',
+    background: '#e74c3c', color: '#fff', border: 'none', cursor: 'pointer',
+  },
 };
 
 const SUBSCRIPTION_COLORS = {
@@ -53,6 +79,9 @@ export default function Institutions() {
   const [search, setSearch] = useState('');
   const [creds, setCreds] = useState({});
   const [resettingId, setResettingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     getAllInstitutions()
@@ -112,6 +141,29 @@ export default function Institutions() {
       toast.error(err.response?.data?.error || 'Failed to generate admin credentials');
     } finally {
       setResettingId(null);
+    }
+  };
+
+  // Codes are unique but names repeat (e.g. several "Rising Soul"), so confirm with the code
+  const confirmValue = (inst) => inst.institution_code || inst.name;
+
+  const openDelete = (inst) => {
+    setDeleteTarget(inst);
+    setConfirmText('');
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteInstitution(deleteTarget.id);
+      setInstitutions(prev => prev.filter(i => i.id !== deleteTarget.id));
+      toast.success(`${deleteTarget.name} deleted`);
+      setDeleteTarget(null);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete institution');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -209,6 +261,7 @@ export default function Institutions() {
             <th style={styles.th}>Admin Credentials</th>
             <th style={styles.th}>Subscription</th>
             <th style={styles.th}>Created</th>
+            <th style={styles.th}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -265,14 +318,60 @@ export default function Institutions() {
                   )}
                 </td>
                 <td style={styles.td}>{inst.created_at ? new Date(inst.created_at).toLocaleDateString() : '-'}</td>
+                <td style={styles.td}>
+                  {Number(inst.super_admin_count) > 0 ? (
+                    <span style={{ color: '#95a5a6', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Holds the super admin account">
+                      <FiShield size={12} /> Protected
+                    </span>
+                  ) : (
+                    <button style={styles.deleteRowBtn} onClick={() => openDelete(inst)}>
+                      <FiTrash2 size={12} /> Delete
+                    </button>
+                  )}
+                </td>
               </tr>
             );
           })}
           {!loading && filtered.length === 0 && (
-            <tr><td colSpan={8} style={styles.empty}>No institutions found</td></tr>
+            <tr><td colSpan={9} style={styles.empty}>No institutions found</td></tr>
           )}
         </tbody>
       </table>
+
+      {deleteTarget && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <h3 style={{ margin: '0 0 12px', fontSize: '18px', color: '#2c3e50' }}>Delete Institution</h3>
+            <p style={{ margin: '0 0 8px', color: '#555', fontSize: '14px' }}>
+              Delete <strong>{deleteTarget.name}</strong>
+              {deleteTarget.institution_code && <> (<span style={styles.code}>{deleteTarget.institution_code}</span>)</>}?
+            </p>
+            <p style={{ margin: '0 0 16px', color: '#e74c3c', fontSize: '13px' }}>
+              This permanently removes its {deleteTarget.staff_count} member account(s), attendance records,
+              leave requests and subscription. It cannot be undone.
+            </p>
+            <label style={{ fontSize: '13px', color: '#555' }}>
+              Type <strong style={{ fontFamily: 'monospace' }}>{confirmValue(deleteTarget)}</strong> to confirm
+            </label>
+            <input
+              style={styles.confirmInput}
+              value={confirmText}
+              onChange={e => setConfirmText(e.target.value)}
+              autoFocus
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setDeleteTarget(null)} style={styles.cancelBtn} disabled={deleting}>Cancel</button>
+              <button
+                onClick={handleDelete}
+                style={{ ...styles.deleteBtn, opacity: confirmText.trim() === confirmValue(deleteTarget) && !deleting ? 1 : 0.5 }}
+                disabled={confirmText.trim() !== confirmValue(deleteTarget) || deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete Institution'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
