@@ -4,6 +4,8 @@ const { authenticate, requireSuperAdmin } = require('../middleware/auth');
 
 router.post('/login', authController.login);
 router.post('/register', authController.register);
+router.post('/google', authController.googleAuth);
+router.post('/google/complete', authController.completeGoogleSignup);
 router.post('/forgot-password', authController.forgotPassword);
 router.post('/forgot-staff-id', authController.forgotStaffId);
 router.post('/refresh-token', authenticate, authController.refreshToken);

@@ -2,6 +2,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 const crypto = require('crypto');
+const { OAuth2Client } = require('google-auth-library');
+const { logAudit } = require('../middleware/audit');
 const {
   normalizeInstitutionCode,
   getInstitutionByCode,
@@ -80,7 +82,7 @@ exports.login = async (req, res) => {
 
     staff = result.rows[0];
     if (!staff.password_hash) {
-      return res.status(401).json({ error: 'Password login is not set for this account. Please reset your password.' });
+      return res.status(401).json({ error: 'This account signs in with Google. Tap "Continue with Google", or reset your password to use one.' });
     }
     const validPassword = await bcrypt.compare(password, staff.password_hash);
 
@@ -88,22 +90,7 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign(
-      { userId: staff.id, role: staff.role, institutionId: staff.institution_id },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
-
-    // Log device info (non-blocking — don't fail login if this errors)
-    if (deviceId) {
-      pool.query(
-        `INSERT INTO device_logs (staff_uuid, device_id, device_model, os_version, action, ip_address)
-         VALUES ($1, $2, $3, $4, 'login', $5)`,
-        [staff.id, deviceId, deviceModel || null, osVersion || null, req.ip]
-      ).catch(err => console.error('Device log error:', err.message));
-    }
-
-    const subscription = await getSubscriptionPayloadSafe(staff.institution_id);
+    logDevice(staff.id, { deviceId, deviceModel, osVersion }, 'login', req.ip);
 
     const institutionCodeOut =
       institution?.institution_code ||
@@ -111,36 +98,315 @@ exports.login = async (req, res) => {
       normalizedInstitutionCode ||
       null;
 
-    res.json({
-      token,
-      user: {
-        id: staff.id,
-        staffId: staff.staff_id,
-        firstName: staff.first_name,
-        lastName: staff.last_name,
-        email: staff.email,
-        role: staff.role,
-        department: staff.department,
-        position: staff.position,
-        institutionId: staff.institution_id,
-        institutionName: staff.institution_name,
-        profilePhoto: staff.profile_photo_url,
-      },
-      institution: {
-        code: institutionCodeOut,
-        name: staff.institution_name,
-        address: staff.inst_address,
-        city: staff.inst_city,
-        region: staff.inst_region,
-        latitude: parseFloat(staff.inst_lat),
-        longitude: parseFloat(staff.inst_lon),
-        geofenceRadius: staff.geofence_radius,
-      },
-      subscription,
-    });
+    res.json(await buildAuthPayload(staff, institutionCodeOut));
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error', debug: err.message });
+  }
+};
+
+// Log device info (non-blocking — don't fail login if this errors)
+function logDevice(staffUuid, { deviceId, deviceModel, osVersion }, action, ipAddress) {
+  if (!deviceId) return;
+  pool.query(
+    `INSERT INTO device_logs (staff_uuid, device_id, device_model, os_version, action, ip_address)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [staffUuid, String(deviceId).slice(0, 255), deviceModel ? String(deviceModel).slice(0, 255) : null,
+     osVersion ? String(osVersion).slice(0, 255) : null, action, ipAddress]
+  ).catch(err => console.error('Device log error:', err.message));
+}
+
+/** Token + user/institution/subscription payload returned by every sign-in route. */
+async function buildAuthPayload(staff, institutionCode) {
+  const token = jwt.sign(
+    { userId: staff.id, role: staff.role, institutionId: staff.institution_id },
+    process.env.JWT_SECRET,
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+  );
+
+  const subscription = await getSubscriptionPayloadSafe(staff.institution_id);
+
+  return {
+    token,
+    user: {
+      id: staff.id,
+      staffId: staff.staff_id,
+      firstName: staff.first_name,
+      lastName: staff.last_name,
+      email: staff.email,
+      phone: staff.phone,
+      role: staff.role,
+      department: staff.department,
+      position: staff.position,
+      institutionId: staff.institution_id,
+      institutionName: staff.institution_name,
+      profilePhoto: staff.profile_photo_url,
+    },
+    institution: {
+      code: institutionCode || staff.inst_institution_code || null,
+      name: staff.institution_name,
+      address: staff.inst_address,
+      city: staff.inst_city,
+      region: staff.inst_region,
+      latitude: parseFloat(staff.inst_lat),
+      longitude: parseFloat(staff.inst_lon),
+      geofenceRadius: staff.geofence_radius,
+    },
+    subscription,
+  };
+}
+
+// ========== GOOGLE SIGN-IN ==========
+
+const googleClient = new OAuth2Client();
+
+const STAFF_WITH_INSTITUTION_SQL = `
+  SELECT s.*, i.name as institution_name, i.address as inst_address, i.city as inst_city, i.region as inst_region,
+         i.latitude as inst_lat, i.longitude as inst_lon, i.geofence_radius, i.institution_code as inst_institution_code
+  FROM staff s
+  JOIN institutions i ON s.institution_id = i.id`;
+
+async function getStaffWithInstitution(id) {
+  const result = await pool.query(`${STAFF_WITH_INSTITUTION_SQL} WHERE s.id = $1`, [id]);
+  return result.rows[0];
+}
+
+/**
+ * Verifies a Google ID token issued to one of our OAuth clients and returns the
+ * Google profile. The token is checked against Google's signing keys, so the
+ * client can't just claim an identity.
+ */
+async function verifyGoogleIdToken(idToken) {
+  const audience = (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (audience.length === 0) {
+    const err = new Error('Google sign-in is not configured on the server');
+    err.status = 503;
+    throw err;
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({ idToken, audience });
+    payload = ticket.getPayload();
+  } catch (e) {
+    console.error('Google token verification failed:', e.message);
+    const err = new Error('Google sign-in could not be verified. Please try again.');
+    err.status = 401;
+    throw err;
+  }
+
+  return {
+    googleId: String(payload.sub),
+    email: payload.email ? payload.email.toLowerCase() : null,
+    emailVerified: payload.email_verified === true,
+    firstName: (payload.given_name || payload.name || '').slice(0, 100),
+    lastName: (payload.family_name || '').slice(0, 100),
+    picture: payload.picture || null,
+  };
+}
+
+/**
+ * Finds the staff account for a Google identity: first by linked google_id,
+ * then by a verified email match (which links the Google account to it).
+ * Returns { staff } or { error, status }.
+ */
+async function findStaffForGoogle(google, institution) {
+  const byGoogleId = await pool.query(
+    `${STAFF_WITH_INSTITUTION_SQL} WHERE s.google_id = $1 AND s.member_type = 'staff'`,
+    [google.googleId]
+  );
+  if (byGoogleId.rows.length > 0) {
+    const staff = byGoogleId.rows[0];
+    if (institution && staff.institution_id !== institution.id) {
+      return { status: 409, error: 'This Google account is already linked to a different institution.' };
+    }
+    if (!staff.is_active) {
+      return { status: 403, error: 'Your account has been deactivated. Please contact your administrator.' };
+    }
+    return { staff };
+  }
+
+  if (!google.email || !google.emailVerified) return { staff: null };
+
+  const params = [google.email];
+  let sql = `${STAFF_WITH_INSTITUTION_SQL}
+    WHERE LOWER(s.email) = $1 AND s.member_type = 'staff' AND s.is_active = true AND s.google_id IS NULL`;
+  if (institution) {
+    sql += ' AND s.institution_id = $2';
+    params.push(institution.id);
+  }
+  const byEmail = await pool.query(sql, params);
+  if (byEmail.rows.length === 0) return { staff: null };
+  if (byEmail.rows.length > 1) {
+    return { status: 400, error: 'Multiple accounts use this email — please enter your institution code.' };
+  }
+
+  const staff = byEmail.rows[0];
+  await pool.query(
+    'UPDATE staff SET google_id = $1, profile_photo_url = COALESCE(profile_photo_url, $2), updated_at = NOW() WHERE id = $3',
+    [google.googleId, google.picture, staff.id]
+  );
+  staff.google_id = google.googleId;
+  return { staff };
+}
+
+const PHONE_PATTERN = /^\+?[0-9][0-9\s-]{6,18}[0-9]$/;
+
+/**
+ * Step 1 of Google sign-in / sign-up. Signs in a linked account that has a
+ * phone number on file; otherwise asks the app to collect the missing details
+ * (phone, institution) and call /auth/google/complete.
+ */
+exports.googleAuth = async (req, res) => {
+  try {
+    const { idToken, institutionCode, deviceId, deviceModel, osVersion } = req.body;
+    if (!idToken) return res.status(400).json({ error: 'Google ID token is required' });
+
+    const google = await verifyGoogleIdToken(idToken);
+
+    const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
+    let institution = null;
+    if (normalizedInstitutionCode) {
+      institution = await getInstitutionByCode(normalizedInstitutionCode);
+      if (!institution) return res.status(404).json({ error: 'Invalid institution code' });
+    }
+
+    const found = await findStaffForGoogle(google, institution);
+    if (found.error) return res.status(found.status).json({ error: found.error });
+    const { staff } = found;
+
+    if (!staff || !staff.phone) {
+      return res.json({
+        needsProfile: true,
+        existingAccount: !!staff,
+        profile: {
+          email: staff?.email || google.email,
+          firstName: staff?.first_name || google.firstName,
+          lastName: staff?.last_name || google.lastName,
+          photo: staff?.profile_photo_url || google.picture,
+          institutionCode: staff?.inst_institution_code || normalizedInstitutionCode || null,
+          institutionName: staff?.institution_name || null,
+        },
+      });
+    }
+
+    logDevice(staff.id, { deviceId, deviceModel, osVersion }, 'google_login', req.ip);
+    res.json(await buildAuthPayload(staff));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('Google auth error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/**
+ * Step 2 of Google sign-in / sign-up: saves the phone number (and name) for a
+ * linked account, or creates a new staff account from the Google profile.
+ */
+exports.completeGoogleSignup = async (req, res) => {
+  try {
+    const {
+      idToken, institutionCode, phone, firstName, lastName, staffId, department, position,
+      deviceId, deviceModel, osVersion,
+    } = req.body;
+    if (!idToken) return res.status(400).json({ error: 'Google ID token is required' });
+
+    const cleanPhone = String(phone || '').trim();
+    if (!PHONE_PATTERN.test(cleanPhone)) {
+      return res.status(400).json({ error: 'Please enter a valid phone number' });
+    }
+    const cleanFirstName = String(firstName || '').trim().slice(0, 100);
+    const cleanLastName = String(lastName || '').trim().slice(0, 100);
+
+    const google = await verifyGoogleIdToken(idToken);
+
+    const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
+    let institution = null;
+    if (normalizedInstitutionCode) {
+      institution = await getInstitutionByCode(normalizedInstitutionCode);
+      if (!institution) return res.status(404).json({ error: 'Invalid institution code' });
+    }
+
+    const found = await findStaffForGoogle(google, institution);
+    if (found.error) return res.status(found.status).json({ error: found.error });
+
+    let staffUuid;
+    let created = false;
+
+    if (found.staff) {
+      staffUuid = found.staff.id;
+      await pool.query(
+        `UPDATE staff SET phone = $1,
+           first_name = COALESCE(NULLIF($2, ''), first_name),
+           last_name = COALESCE(NULLIF($3, ''), last_name),
+           updated_at = NOW()
+         WHERE id = $4`,
+        [cleanPhone, cleanFirstName, cleanLastName, staffUuid]
+      );
+    } else {
+      if (!institution) {
+        return res.status(400).json({ error: 'Institution code is required to create your account' });
+      }
+      if (!cleanFirstName || !cleanLastName) {
+        return res.status(400).json({ error: 'First name and last name are required' });
+      }
+
+      let finalStaffId = String(staffId || '').trim().toUpperCase().slice(0, 50);
+      if (finalStaffId) {
+        const taken = await pool.query(
+          'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
+          [finalStaffId, institution.id]
+        );
+        if (taken.rows.length > 0) {
+          return res.status(409).json({ error: 'That Staff ID is already registered. Leave it blank to get one assigned.' });
+        }
+      } else {
+        for (let attempt = 0; attempt < 5 && !finalStaffId; attempt++) {
+          const candidate = 'G' + crypto.randomBytes(3).toString('hex').toUpperCase();
+          const taken = await pool.query(
+            'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
+            [candidate, institution.id]
+          );
+          if (taken.rows.length === 0) finalStaffId = candidate;
+        }
+        if (!finalStaffId) return res.status(500).json({ error: 'Could not assign a Staff ID — please try again' });
+      }
+
+      const insert = await pool.query(
+        `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position,
+                            google_id, profile_photo_url, qr_code_data, role, member_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'staff', 'staff')
+         RETURNING id`,
+        [institution.id, finalStaffId, cleanFirstName, cleanLastName, google.email, cleanPhone,
+         department ? String(department).trim().slice(0, 100) : null,
+         position ? String(position).trim().slice(0, 100) : null,
+         google.googleId, google.picture, `STAFF-${institution.id}-${finalStaffId}`]
+      );
+      staffUuid = insert.rows[0].id;
+      created = true;
+
+      logAudit({
+        institutionId: institution.id,
+        action: 'google_signup',
+        entityType: 'staff',
+        entityId: staffUuid,
+        details: { staffId: finalStaffId, name: `${cleanFirstName} ${cleanLastName}`, email: google.email, phone: cleanPhone },
+        performedBy: staffUuid,
+        ipAddress: req.ip,
+      });
+    }
+
+    const staff = await getStaffWithInstitution(staffUuid);
+    logDevice(staff.id, { deviceId, deviceModel, osVersion }, 'google_login', req.ip);
+    res.status(created ? 201 : 200).json(await buildAuthPayload(staff));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('Complete Google signup error:', err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'This Google account or Staff ID is already registered' });
+    }
+    res.status(500).json({ error: 'Server error' });
   }
 };
 
@@ -205,6 +471,9 @@ exports.changePassword = async (req, res) => {
     }
 
     const result = await pool.query('SELECT password_hash FROM staff WHERE id = $1', [req.user.id]);
+    if (!result.rows[0]?.password_hash) {
+      return res.status(400).json({ error: 'This account signs in with Google and has no password yet. Use Forgot Password to set one.' });
+    }
     const validPassword = await bcrypt.compare(currentPassword, result.rows[0].password_hash);
 
     if (!validPassword) {

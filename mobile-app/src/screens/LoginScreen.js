@@ -9,8 +9,9 @@ import { login } from '../services/api';
 import { useToast } from '../services/Toast';
 import { authenticateWithBiometric, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
 import { getCredentials, saveCredentials } from '../services/credentials';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
-export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId, onRegister }) {
+export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId, onRegister, onGoogleProfile }) {
   const toast = useToast();
   const [institutionCode, setInstitutionCode] = useState('');
   const [staffId, setStaffId] = useState('');
@@ -262,6 +263,13 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
               <Text style={styles.biometricLinkText}>Use Biometric Instead?</Text>
             </TouchableOpacity>
           )}
+
+          <GoogleSignInButton
+            institutionCode={institutionCode}
+            disabled={loading}
+            onSignedIn={onLogin}
+            onNeedsProfile={(params) => onGoogleProfile && onGoogleProfile(params)}
+          />
         </View>
 
         <TouchableOpacity onPress={() => onRegister && onRegister()}>

@@ -13,6 +13,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import ForgotStaffIdScreen from './src/screens/ForgotStaffIdScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
+import GoogleProfileScreen from './src/screens/GoogleProfileScreen';
 import { registerForPushNotifications, scheduleCheckInReminder } from './src/services/notifications';
 import { ThemeProvider } from './src/services/theme';
 import { I18nProvider } from './src/services/i18n';
@@ -129,12 +130,18 @@ export default function App() {
                     onForgotPassword={() => props.navigation.navigate('ForgotPassword')}
                     onForgotStaffId={() => props.navigation.navigate('ForgotStaffId')}
                     onRegister={() => props.navigation.navigate('Register')}
+                    onGoogleProfile={(params) => props.navigation.navigate('GoogleProfile', params)}
                   />
                 )}
               </Stack.Screen>
               <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
               <Stack.Screen name="ForgotStaffId" component={ForgotStaffIdScreen} />
-              <Stack.Screen name="Register" component={RegisterScreen} />
+              <Stack.Screen name="Register">
+                {(props) => <RegisterScreen {...props} onLogin={() => setIsLoggedIn(true)} />}
+              </Stack.Screen>
+              <Stack.Screen name="GoogleProfile">
+                {(props) => <GoogleProfileScreen {...props} onLogin={() => setIsLoggedIn(true)} />}
+              </Stack.Screen>
             </>
           )}
           {isLoggedIn && <Stack.Screen name="LeaveRequest" component={LeaveRequestScreen} />}

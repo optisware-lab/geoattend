@@ -126,8 +126,8 @@ CREATE TABLE IF NOT EXISTS device_logs (
   timestamp TIMESTAMP DEFAULT NOW()
 );
 
--- Allow password-less rows to be cleaned up (kept for historical rows that
--- may have been created by Google OAuth before it was removed)
+-- Google sign-in: accounts created with Google have no password
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
 ALTER TABLE staff ALTER COLUMN password_hash DROP NOT NULL;
 
 -- Ensure column sizes are correct (in case table was created with smaller sizes)

@@ -2,15 +2,14 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
-// Resolve API base URL with multiple fallbacks to support Expo dev, .env, and a sensible LAN default.
+// Resolve API base URL: .env override, then app.json extra, then the live backend.
+// For a local backend set EXPO_PUBLIC_API_BASE_URL=http://<your-LAN-IP>:5000/api in mobile-app/.env.
 const API_BASE_URL =
   // Prefer explicit environment variable (works with eas build / runtime env)
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   // Then check expo config extra (app.config.js / app.json)
   Constants.expoConfig?.extra?.API_BASE_URL ||
   Constants.manifest?.extra?.API_BASE_URL ||
-  // Fallback to a common developer LAN address — update .env if different
-  'http://10.46.11.236:5000/api' ||
   'https://geoattend-api-pc49.onrender.com/api';
 
 const api = axios.create({
@@ -23,6 +22,7 @@ const PUBLIC_AUTH_PATHS = [
   '/auth/login',
   '/auth/register',
   '/auth/forgot-password',
+  '/auth/google',
 ];
 
 api.interceptors.request.use(async (config) => {
@@ -115,6 +115,9 @@ api.interceptors.response.use(
 // Auth
 export const login = (staffId, password, institutionCode, deviceInfo) =>
   api.post('/auth/login', { staffId, password, institutionCode, ...deviceInfo });
+export const googleAuth = (idToken, institutionCode, deviceInfo) =>
+  api.post('/auth/google', { idToken, institutionCode, ...deviceInfo });
+export const completeGoogleSignup = (data) => api.post('/auth/google/complete', data);
 export const forgotPassword = (staffId, email, newPassword, institutionCode) =>
   api.post('/auth/forgot-password', { staffId, email, newPassword, institutionCode });
 export const refreshToken = () => api.post('/auth/refresh-token');

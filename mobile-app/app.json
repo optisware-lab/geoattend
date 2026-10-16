@@ -42,7 +42,12 @@
       ]
     ],
     "extra": {
-      "API_BASE_URL": "https://geoattend-api-pc49.onrender.com/api"
+      "API_BASE_URL": "https://geoattend-api-pc49.onrender.com/api",
+      "GOOGLE_WEB_CLIENT_ID": "",
+      "GOOGLE_IOS_CLIENT_ID": "",
+      "eas": {
+        "projectId": "3dc58c73-1dc1-44ce-b834-810c88f20090"
+      }
     },
     "runtimeVersion": "2.0.0",
     "ios": {
@@ -55,6 +60,7 @@
         "NSCameraUsageDescription": "GeoAttend needs camera access to scan QR codes for attendance check-in.",
         "NSFaceIDUsageDescription": "GeoAttend uses Face ID to securely log you in."
       }
-    }
+    },
+    "owner": "optisware"
   }
 }

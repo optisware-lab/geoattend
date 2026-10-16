@@ -35,6 +35,10 @@ const styles = {
     background: active ? '#e8f5e9' : '#ffebee',
     color: active ? '#27ae60' : '#e74c3c',
   }),
+  googleBadge: {
+    marginLeft: '8px', padding: '2px 8px', borderRadius: '10px', fontSize: '10px', fontWeight: '600',
+    background: '#e8f0fe', color: '#1a73e8', verticalAlign: 'middle',
+  },
   actionBtn: { background: 'none', padding: '6px', borderRadius: '6px', color: '#7f8c8d', marginRight: '4px' },
   pagination: { display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '16px' },
   pageBtn: (active) => ({
@@ -194,7 +198,7 @@ export default function StaffManagement() {
       <div style={styles.filters}>
         <form onSubmit={handleSearch} style={styles.searchBox}>
           <FiSearch size={16} color="#95a5a6" />
-          <input style={styles.searchInput} placeholder="Search by name, ID or email..." value={search} onChange={e => setSearch(e.target.value)} />
+          <input style={styles.searchInput} placeholder="Search by name, ID, email or phone..." value={search} onChange={e => setSearch(e.target.value)} />
         </form>
         <select style={styles.select} value={department} onChange={e => { setDepartment(e.target.value); setPage(1); }}>
           <option value="">All Departments</option>
@@ -215,6 +219,7 @@ export default function StaffManagement() {
             <th style={styles.th}>Department</th>
             <th style={styles.th}>Position</th>
             <th style={styles.th}>Email</th>
+            <th style={styles.th}>Phone</th>
             <th style={styles.th}>Status</th>
             <th style={styles.th}>Actions</th>
           </tr>
@@ -223,10 +228,14 @@ export default function StaffManagement() {
           {staff.map(s => (
             <tr key={s.id}>
               <td style={styles.td}><strong>{s.staff_id}</strong></td>
-              <td style={styles.td}>{s.first_name} {s.last_name}</td>
+              <td style={styles.td}>
+                {s.first_name} {s.last_name}
+                {s.google_linked && <span style={styles.googleBadge} title="Signs in with Google">Google</span>}
+              </td>
               <td style={styles.td}>{s.department || '-'}</td>
               <td style={styles.td}>{s.position || '-'}</td>
               <td style={styles.td}>{s.email || '-'}</td>
+              <td style={styles.td}>{s.phone || '-'}</td>
               <td style={styles.td}><span style={styles.badge(s.is_active)}>{s.is_active ? 'Active' : 'Inactive'}</span></td>
               <td style={styles.td}>
                 <button style={styles.actionBtn} title="Edit" onClick={() => navigate(`/staff/${s.id}/edit`)}><FiEdit2 size={15} /></button>
@@ -244,7 +253,7 @@ export default function StaffManagement() {
             </tr>
           ))}
           {staff.length === 0 && (
-            <tr><td colSpan={7} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: '#95a5a6' }}>No staff members found</td></tr>
+            <tr><td colSpan={8} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: '#95a5a6' }}>No staff members found</td></tr>
           )}
         </tbody>
       </table>

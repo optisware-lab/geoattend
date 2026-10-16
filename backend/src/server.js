@@ -33,11 +33,13 @@ const limiter = rateLimit({
   max: 100,
   message: { error: 'Too many requests, please try again later' },
 });
-app.use('/api/auth/login', rateLimit({
+const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { error: 'Too many login attempts, please try again later' },
-}));
+});
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/google', authLimiter);
 app.use('/api/', limiter);
 
 // Body parsing
@@ -101,6 +103,7 @@ async function runAutoMigration() {
     'ALTER TABLE staff ALTER COLUMN last_name TYPE VARCHAR(100)',
     'ALTER TABLE staff ALTER COLUMN email TYPE VARCHAR(255)',
     'ALTER TABLE staff ALTER COLUMN password_hash DROP NOT NULL',
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE',
   ];
   for (const sql of alters) {
     try {

@@ -11,13 +11,14 @@ exports.getAllStaff = async (req, res) => {
 
     let query = `
       SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
-             s.department, s.position, s.role, s.is_active, s.profile_photo_url, s.created_at
+             s.department, s.position, s.role, s.is_active, s.profile_photo_url, s.created_at,
+             (s.google_id IS NOT NULL) AS google_linked
       FROM staff s WHERE s.institution_id = $1 AND s.member_type = 'staff'`;
     const params = [institutionId];
     let paramIndex = 2;
 
     if (search) {
-      query += ` AND (s.first_name ILIKE $${paramIndex} OR s.last_name ILIKE $${paramIndex} OR s.staff_id ILIKE $${paramIndex} OR s.email ILIKE $${paramIndex})`;
+      query += ` AND (s.first_name ILIKE $${paramIndex} OR s.last_name ILIKE $${paramIndex} OR s.staff_id ILIKE $${paramIndex} OR s.email ILIKE $${paramIndex} OR s.phone ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
@@ -57,7 +58,7 @@ exports.getStaffById = async (req, res) => {
     const result = await pool.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
               s.department, s.position, s.role, s.is_active, s.profile_photo_url,
-              s.qr_code_data, s.created_at, s.updated_at
+              s.qr_code_data, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
        FROM staff s WHERE s.id = $1 AND s.institution_id = $2`,
       [req.params.id, req.user.institution_id]
     );

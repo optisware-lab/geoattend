@@ -140,7 +140,7 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.100:5000/api
 ### Production (Deployed)
 ```bash
 # mobile-app/.env
-EXPO_PUBLIC_API_BASE_URL=https://geofence-app-jjpa.onrender.com/api
+EXPO_PUBLIC_API_BASE_URL=https://geoattend-api-pc49.onrender.com/api
 ```
 
 Or update `app.json`:

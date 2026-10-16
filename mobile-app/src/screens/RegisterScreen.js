@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import GoogleSignInButton from '../components/GoogleSignInButton';
 
-export default function RegisterScreen({ navigation }) {
+export default function RegisterScreen({ navigation, onLogin }) {
   const [form, setForm] = useState({
     staffId: '', firstName: '', lastName: '', email: '', phone: '',
     password: '', confirmPassword: '', department: '', position: '', institutionCode: '',
@@ -203,6 +204,14 @@ export default function RegisterScreen({ navigation }) {
             >
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Register</Text>}
             </TouchableOpacity>
+
+            <GoogleSignInButton
+              label="Sign up with Google"
+              institutionCode={form.institutionCode}
+              disabled={loading}
+              onSignedIn={onLogin}
+              onNeedsProfile={(params) => navigation.navigate('GoogleProfile', params)}
+            />
 
             <TouchableOpacity onPress={() => navigation.goBack()}>
               <Text style={styles.loginLink}>Already have an account? Sign In</Text>
