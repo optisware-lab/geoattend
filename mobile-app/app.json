@@ -43,7 +43,7 @@
     ],
     "extra": {
       "API_BASE_URL": "https://geoattend-api-pc49.onrender.com/api",
-      "GOOGLE_WEB_CLIENT_ID": "",
+      "GOOGLE_WEB_CLIENT_ID": "183291183606-uv46j7v5qbdq1eaav9m50bu0t85b1e1l.apps.googleusercontent.com",
       "GOOGLE_IOS_CLIENT_ID": "",
       "eas": {
         "projectId": "3dc58c73-1dc1-44ce-b834-810c88f20090"
