@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/migrations/run.js",
-    "seed": "node src/migrations/seed.js"
+    "seed": "node src/migrations/seed.js",
+    "reset-admin": "node src/scripts/resetSuperAdminPassword.js"
   },
   "dependencies": {
     "@prisma/client": "^5.12.0",

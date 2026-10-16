@@ -1,0 +1,16 @@
+{
+  "name": "geoattend",
+  "private": true,
+  "description": "GeoAttend workspace scripts — the backend, admin dashboard and mobile app each keep their own package.json",
+  "scripts": {
+    "setup": "npm --prefix backend install && npm --prefix admin-dashboard install && npm --prefix mobile-app install",
+    "dev": "concurrently -k -n api,dashboard -c blue,green \"npm --prefix backend run dev\" \"npm --prefix admin-dashboard run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:dashboard": "npm --prefix admin-dashboard run dev",
+    "dev:mobile": "npm --prefix mobile-app start",
+    "migrate": "npm --prefix backend run migrate"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
