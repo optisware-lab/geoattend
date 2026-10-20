@@ -37,6 +37,7 @@ export default function StaffForm() {
   const [form, setForm] = useState({
     staffId: '', firstName: '', lastName: '', email: '', phone: '',
     department: '', position: '', role: 'staff', password: '', isActive: true,
+    hourlyRate: '',
   });
   const [qrCode, setQrCode] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +50,7 @@ export default function StaffForm() {
           staffId: s.staff_id, firstName: s.first_name, lastName: s.last_name,
           email: s.email || '', phone: s.phone || '', department: s.department || '',
           position: s.position || '', role: s.role, password: '', isActive: s.is_active,
+          hourlyRate: s.hourly_rate !== null && s.hourly_rate !== undefined ? s.hourly_rate : '',
         });
       }).catch(() => toast.error('Failed to load staff'));
 
@@ -64,9 +66,10 @@ export default function StaffForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    const rate = form.hourlyRate === '' ? null : form.hourlyRate;
     try {
       if (isEdit) {
-        await updateStaff(id, form);
+        await updateStaff(id, { ...form, hourlyRate: rate });
         toast.success('Staff updated successfully');
       } else {
         if (!form.password) {
@@ -74,7 +77,7 @@ export default function StaffForm() {
           setLoading(false);
           return;
         }
-        await createStaff(form);
+        await createStaff({ ...form, hourlyRate: rate });
         toast.success('Staff created successfully');
       }
       navigate('/staff');
@@ -130,6 +133,11 @@ export default function StaffForm() {
             <div style={styles.field}>
               <label style={styles.label}>Position</label>
               <input style={styles.input} name="position" value={form.position} onChange={handleChange} placeholder="e.g. Accountant" />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Hourly Rate</label>
+              <input style={styles.input} name="hourlyRate" type="number" step="0.01" min="0" value={form.hourlyRate} onChange={handleChange} placeholder="Used when institution pays hourly" />
+              <span style={{ fontSize: '11px', color: '#bdc3c7' }}>Leave empty for monthly-salary institutions</span>
             </div>
             {!isEdit && (
               <div style={styles.field}>

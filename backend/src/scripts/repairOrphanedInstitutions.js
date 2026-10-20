@@ -10,25 +10,25 @@
 const pool = require('../config/database');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { encrypt } = require('../utils/credentialsCrypto');
 
-async function generateInstitutionCode() {
+async function generateInstitutionCode(client) {
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
-    const exists = await pool.query('SELECT id FROM institutions WHERE institution_code = $1', [code]);
+    const exists = await client.query('SELECT id FROM institutions WHERE institution_code = $1', [code]);
     if (exists.rows.length === 0) return code;
   }
   return `INST-${Date.now().toString().slice(-6)}`;
 }
 
-async function repairInstitution(inst) {
-  const client = await pool.connect();
+async function repairInstitution(inst, client) {
   try {
     await client.query('BEGIN');
     let repaired = false;
 
     // Fix missing institution_code
     if (!inst.institution_code) {
-      const newCode = await generateInstitutionCode();
+      const newCode = await generateInstitutionCode(client);
       await client.query(
         'UPDATE institutions SET institution_code = $1, updated_at = NOW() WHERE id = $2',
         [newCode, inst.id]
@@ -59,7 +59,7 @@ async function repairInstitution(inst) {
         [inst.id, staffId, passwordHash, qrData]
       );
 
-      // Store credentials for super admin retrieval
+      // Store encrypted credentials for super admin retrieval
       await client.query(
         `INSERT INTO institution_admin_credentials (institution_id, admin_staff_id, admin_password)
          VALUES ($1, $2, $3)
@@ -67,7 +67,7 @@ async function repairInstitution(inst) {
            admin_staff_id = EXCLUDED.admin_staff_id,
            admin_password = EXCLUDED.admin_password,
            updated_at = NOW()`,
-        [inst.id, staffId, rawPassword]
+        [inst.id, staffId, encrypt(rawPassword)]
       );
 
       console.log(`  ✅ Admin created: ${staffId} / ${rawPassword}`);
@@ -117,14 +117,12 @@ async function repairInstitution(inst) {
     return repaired;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error(`  ❌ Repair failed: ${err.message}`);
+    console.error(`  ✗ Repair failed: ${err.message}`);
     return false;
-  } finally {
-    client.release();
   }
 }
 
-async function main() {
+async function main(client) {
   const targetName = process.argv[2];
 
   let query = 'SELECT id, name, institution_code, created_at FROM institutions';
@@ -137,7 +135,7 @@ async function main() {
 
   query += ' ORDER BY created_at DESC';
 
-  const result = await pool.query(query, params);
+  const result = await client.query(query, params);
 
   if (result.rows.length === 0) {
     console.log(targetName ? `No institution found matching "${targetName}"` : 'No institutions found');
@@ -148,17 +146,18 @@ async function main() {
 
   let repairedCount = 0;
   for (const inst of result.rows) {
-    console.log(`📋 ${inst.name} (${inst.id})`);
-    const wasRepaired = await repairInstitution(inst);
+    console.log(`✔ ${inst.name} (${inst.id})`);
+    const wasRepaired = await repairInstitution(inst, client);
     if (wasRepaired) repairedCount++;
     console.log('');
   }
 
-  console.log(`\n✅ Repair complete. ${repairedCount} institution(s) were repaired.`);
+  console.log(`\n✓ Repair complete. ${repairedCount} institution(s) were repaired.`);
   process.exit(0);
 }
 
-main().catch(err => {
+// Ops scripts run without a tenant identity — run with the RLS system bypass.
+pool.withSystemContext(main).catch(err => {
   console.error('Fatal error:', err);
   process.exit(1);
 });

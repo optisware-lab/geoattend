@@ -1,4 +1,3 @@
-const pool = require('../config/database');
 const {
   ensureTrialSubscription,
   getCurrentSubscription,
@@ -15,8 +14,10 @@ async function requireActiveSubscription(req, res, next) {
       return next();
     }
 
-    await ensureTrialSubscription(req.user.institution_id);
-    const subscription = await getCurrentSubscription(req.user.institution_id);
+    const db = req.tenantDb;
+
+    await ensureTrialSubscription(req.user.institution_id, db);
+    const subscription = await getCurrentSubscription(req.user.institution_id, db);
     const now = new Date();
 
     if (!subscription) {
@@ -39,7 +40,7 @@ async function requireActiveSubscription(req, res, next) {
       return next();
     }
 
-    await pool.query(
+    await db.query(
       `UPDATE subscriptions
        SET status = 'past_due', updated_at = NOW()
        WHERE id = $1 AND status IN ('trialing', 'active')`,

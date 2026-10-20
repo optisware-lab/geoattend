@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { generateInstitutionQR } = require('../utils/qrcode');
 const { logAudit } = require('../middleware/audit');
+const { encrypt, decrypt, isEncrypted } = require('../utils/credentialsCrypto');
 const {
   DEFAULT_TRIAL_DAYS,
   ensureTrialSubscription,
@@ -11,17 +12,17 @@ const {
   buildSubscriptionSnapshot,
 } = require('../services/subscriptionService');
 
-async function generateInstitutionCode() {
+async function generateInstitutionCode(db) {
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
-    const exists = await pool.query('SELECT id FROM institutions WHERE institution_code = $1', [code]);
+    const exists = await db.query('SELECT id FROM institutions WHERE institution_code = $1', [code]);
     if (exists.rows.length === 0) return code;
   }
   return `INST-${Date.now().toString().slice(-6)}`;
 }
 
-/** Upsert the plaintext admin credentials so the super admin can retrieve them later. */
-async function storeAdminCredentials(institutionId, staffId, password, client = pool) {
+/** Upsert the AES-encrypted admin credentials so the super admin can decrypt them later. */
+async function storeAdminCredentials(institutionId, staffId, rawPassword, client = pool) {
   await client.query(
     `INSERT INTO institution_admin_credentials (institution_id, admin_staff_id, admin_password)
      VALUES ($1, $2, $3)
@@ -29,7 +30,7 @@ async function storeAdminCredentials(institutionId, staffId, password, client = 
        admin_staff_id = EXCLUDED.admin_staff_id,
        admin_password = EXCLUDED.admin_password,
        updated_at = NOW()`,
-    [institutionId, staffId, password]
+    [institutionId, staffId, encrypt(rawPassword)]
   );
 }
 
@@ -52,7 +53,7 @@ async function createInitialAdminCredentials(institutionId, providedPassword, cl
 
 exports.getInstitution = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       'SELECT * FROM institutions WHERE id = $1',
       [req.user.institution_id]
     );
@@ -70,10 +71,16 @@ exports.getInstitution = async (req, res) => {
 
 exports.updateInstitution = async (req, res) => {
   try {
-    const { name, address, city, region, latitude, longitude, geofenceRadius } = req.body;
+    const { name, address, city, region, latitude, longitude, geofenceRadius, paymentMode, currency } = req.body;
     const institutionId = req.user.institution_id;
 
-    const result = await pool.query(
+    // Only 'hourly' or 'monthly' are accepted payment modes
+    const paymentModeValue = ['hourly', 'monthly'].includes(paymentMode) ? paymentMode : null;
+    const currencyValue = typeof currency === 'string' && currency.trim().length >= 1 && currency.trim().length <= 10
+      ? currency.trim().toUpperCase()
+      : null;
+
+    const result = await req.tenantDb.query(
       `UPDATE institutions SET
         name = COALESCE($1, name),
         address = COALESCE($2, address),
@@ -82,10 +89,12 @@ exports.updateInstitution = async (req, res) => {
         latitude = COALESCE($5, latitude),
         longitude = COALESCE($6, longitude),
         geofence_radius = COALESCE($7, geofence_radius),
+        payment_mode = COALESCE($8, payment_mode),
+        currency = COALESCE($9, currency),
         updated_at = NOW()
-       WHERE id = $8
+       WHERE id = $10
        RETURNING *`,
-      [name, address, city, region, latitude, longitude, geofenceRadius, institutionId]
+      [name, address, city, region, latitude, longitude, geofenceRadius, paymentModeValue, currencyValue, institutionId]
     );
 
     res.json(result.rows[0]);
@@ -97,7 +106,7 @@ exports.updateInstitution = async (req, res) => {
 
 exports.getAllInstitutions = async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await req.tenantDb.query(`
       SELECT
         i.*,
         COALESCE(sc.staff_count, 0) AS staff_count,
@@ -138,21 +147,23 @@ exports.getAllInstitutions = async (req, res) => {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Institution + its stored admin credentials, as returned by createInstitution
-async function getCreatedInstitution(id) {
-  const inst = await pool.query('SELECT * FROM institutions WHERE id = $1', [id]);
+async function getCreatedInstitution(id, db) {
+  const inst = await db.query('SELECT * FROM institutions WHERE id = $1', [id]);
   if (inst.rows.length === 0) return null;
-  const creds = await pool.query(
+  const creds = await db.query(
     'SELECT admin_staff_id, admin_password FROM institution_admin_credentials WHERE institution_id = $1',
     [id]
   );
   const adminCredentials = creds.rows[0]
-    ? { staffId: creds.rows[0].admin_staff_id, password: creds.rows[0].admin_password }
+    ? { staffId: creds.rows[0].admin_staff_id, password: decrypt(creds.rows[0].admin_password) }
     : undefined;
   return { ...inst.rows[0], adminCredentials, alreadyCreated: true };
 }
 
 exports.createInstitution = async (req, res) => {
   const client = await pool.connect();
+  // Super-admin route: this transaction client needs the RLS bypass flag
+  await pool.applyTenantContext(client, { bypass: true }).catch(() => {});
   try {
     const { name, address, city, region, latitude, longitude, geofenceRadius, requestId } = req.body;
 
@@ -164,7 +175,7 @@ exports.createInstitution = async (req, res) => {
     // retries (e.g. after a timeout while Render wakes up). Using it as the id
     // makes a repeated request return the first institution instead of a duplicate.
     const id = UUID_PATTERN.test(String(requestId || '')) ? String(requestId).toLowerCase() : uuidv4();
-    const existing = await getCreatedInstitution(id);
+    const existing = await getCreatedInstitution(id, req.tenantDb);
     if (existing) return res.json(existing);
 
     await client.query('BEGIN');
@@ -173,7 +184,7 @@ exports.createInstitution = async (req, res) => {
     let created = null;
     let institutionCode = null;
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
-      institutionCode = await generateInstitutionCode();
+      institutionCode = await generateInstitutionCode(req.tenantDb);
       try {
         const result = await client.query(
           `INSERT INTO institutions (id, name, institution_code, address, city, region, latitude, longitude, geofence_radius)
@@ -199,7 +210,7 @@ exports.createInstitution = async (req, res) => {
 
     // Ensure code is present (defensive against triggers/DB quirks)
     if (!created.institution_code) {
-      const repairCode = await generateInstitutionCode();
+      const repairCode = await generateInstitutionCode(req.tenantDb);
       const upd = await client.query(
         `UPDATE institutions SET institution_code = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
         [repairCode, id]
@@ -244,7 +255,7 @@ exports.createInstitution = async (req, res) => {
     await client.query('ROLLBACK').catch(() => {});
     // A concurrent retry of the same request committed first — return that one
     if (err.code === '23505' && err.constraint === 'institutions_pkey') {
-      const existing = await getCreatedInstitution(req.body.requestId).catch(() => null);
+      const existing = await getCreatedInstitution(req.body.requestId, req.tenantDb).catch(() => null);
       if (existing) return res.json(existing);
     }
     console.error('Create institution error:', err);
@@ -260,7 +271,7 @@ exports.repairInstitutionCode = async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Institution id is required' });
 
-    const existing = await pool.query('SELECT id, institution_code FROM institutions WHERE id = $1', [id]);
+    const existing = await req.tenantDb.query('SELECT id, institution_code FROM institutions WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Institution not found' });
     }
@@ -268,8 +279,8 @@ exports.repairInstitutionCode = async (req, res) => {
       return res.json({ message: 'Institution already has a code', institution: existing.rows[0] });
     }
 
-    const code = await generateInstitutionCode();
-    const updated = await pool.query(
+    const code = await generateInstitutionCode(req.tenantDb);
+    const updated = await req.tenantDb.query(
       'UPDATE institutions SET institution_code = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
       [code, id]
     );
@@ -286,6 +297,8 @@ exports.repairInstitutionCode = async (req, res) => {
 exports.deleteInstitution = async (req, res) => {
   const { id } = req.params;
   const client = await pool.connect();
+  // Super-admin route: this transaction client needs the RLS bypass flag
+  await pool.applyTenantContext(client, { bypass: true }).catch(() => {});
   try {
     const existing = await client.query(
       `SELECT i.id, i.name, i.institution_code,
@@ -383,7 +396,7 @@ exports.activateSubscription = async (req, res) => {
       }
     }
 
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       `INSERT INTO subscriptions (institution_id, plan_name, status, trial_start, trial_end, current_period_end, payment_reference)
        VALUES ($1, $2, 'active', NULL, NULL, NOW() + ($3 || ' days')::INTERVAL, $4)
        RETURNING id, plan_name, status, trial_start, trial_end, current_period_end, payment_reference`,
@@ -408,7 +421,7 @@ exports.extendTrial = async (req, res) => {
     }
 
     await ensureTrialSubscription(req.user.institution_id);
-    const updated = await pool.query(
+    const updated = await req.tenantDb.query(
       `WITH latest AS (
          SELECT id
          FROM subscriptions
@@ -441,7 +454,7 @@ exports.extendTrial = async (req, res) => {
 
 exports.getAttendanceRules = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       "SELECT * FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
       [req.user.institution_id]
     );
@@ -454,20 +467,25 @@ exports.getAttendanceRules = async (req, res) => {
 
 exports.updateAttendanceRules = async (req, res) => {
   try {
-    const { workStartTime, workEndTime, lateThresholdMinutes, earlyDepartureMinutes, workingDays } = req.body;
+    const { workStartTime, workEndTime, lateThresholdMinutes, earlyDepartureMinutes, workingDays, overtimeMultiplier } = req.body;
     const institutionId = req.user.institution_id;
 
-    const result = await pool.query(
+    const multiplierValue = overtimeMultiplier === undefined || overtimeMultiplier === null
+      ? null
+      : Math.max(1, Math.min(3, parseFloat(overtimeMultiplier)));
+
+    const result = await req.tenantDb.query(
       `UPDATE attendance_rules SET
         work_start_time = COALESCE($1, work_start_time),
         work_end_time = COALESCE($2, work_end_time),
         late_threshold_minutes = COALESCE($3, late_threshold_minutes),
         early_departure_minutes = COALESCE($4, early_departure_minutes),
         working_days = COALESCE($5, working_days),
+        overtime_multiplier = COALESCE($6, overtime_multiplier),
         updated_at = NOW()
-       WHERE institution_id = $6 AND member_type = 'staff'
+       WHERE institution_id = $7 AND member_type = 'staff'
        RETURNING *`,
-      [workStartTime, workEndTime, lateThresholdMinutes, earlyDepartureMinutes, workingDays, institutionId]
+      [workStartTime, workEndTime, lateThresholdMinutes, earlyDepartureMinutes, workingDays, multiplierValue, institutionId]
     );
 
     res.json(result.rows[0]);
@@ -479,7 +497,7 @@ exports.updateAttendanceRules = async (req, res) => {
 
 exports.getInstitutionQR = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       'SELECT * FROM institutions WHERE id = $1',
       [req.user.institution_id]
     );
@@ -495,6 +513,8 @@ exports.getInstitutionQR = async (req, res) => {
       qrCode,
       institutionName: institution.name,
       institutionId: institution.id,
+      hasRotationToken: Boolean(institution.qr_rotation_token),
+      rotatedAt: institution.qr_rotated_at || null,
     });
   } catch (err) {
     console.error('Get institution QR error:', err);
@@ -502,11 +522,57 @@ exports.getInstitutionQR = async (req, res) => {
   }
 };
 
-// Super admin: retrieve the stored admin credentials for an institution
+// Admin: rotate the entrance QR. A new rotation token is issued, so any
+// previously printed/sign-posted QR (or a photo of it) stops being accepted.
+// The endpoint returns the fresh QR plus the print-ready message.
+exports.rotateInstitutionQR = async (req, res) => {
+  try {
+    const token = crypto.randomBytes(24).toString('hex');
+    const result = await req.tenantDb.query(
+      `UPDATE institutions
+       SET qr_rotation_token = $1, qr_rotated_at = NOW(), updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, name, qr_rotated_at`,
+      [token, req.user.institution_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Institution not found' });
+    }
+
+    const institution = { ...result.rows[0], qr_rotation_token: token };
+    const qrCode = await generateInstitutionQR(institution);
+
+    await logAudit({
+      institutionId: req.user.institution_id,
+      action: 'rotate_institution_qr',
+      entityType: 'institution',
+      entityId: institution.id,
+      details: { rotatedAt: institution.qr_rotated_at },
+      performedBy: req.user.id,
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      qrCode,
+      institutionName: institution.name,
+      institutionId: institution.id,
+      rotatedAt: institution.qr_rotated_at,
+      message: 'Entrance QR rotated — old prints are no longer valid. Reprint and replace the sign.',
+    });
+  } catch (err) {
+    console.error('Rotate institution QR error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// Super admin: decrypt and return the stored admin credentials for an
+// institution (password, admin staff ID and institution code). Every
+// retrieval is audit-logged.
 exports.getAdminCredentials = async (req, res) => {
   try {
     const { id } = req.params;
-    const inst = await pool.query(
+    const inst = await req.tenantDb.query(
       'SELECT id, name, institution_code FROM institutions WHERE id = $1',
       [id]
     );
@@ -514,7 +580,7 @@ exports.getAdminCredentials = async (req, res) => {
       return res.status(404).json({ error: 'Institution not found' });
     }
 
-    const creds = await pool.query(
+    const creds = await req.tenantDb.query(
       'SELECT admin_staff_id, admin_password, updated_at FROM institution_admin_credentials WHERE institution_id = $1',
       [id]
     );
@@ -522,9 +588,22 @@ exports.getAdminCredentials = async (req, res) => {
       return res.status(404).json({ error: 'No stored admin credentials for this institution' });
     }
 
+    await logAudit({
+      institutionId: req.user.institution_id,
+      action: 'view_admin_credentials',
+      entityType: 'institution',
+      entityId: id,
+      details: { adminStaffId: creds.rows[0].admin_staff_id },
+      performedBy: req.user.id,
+      ipAddress: req.ip,
+    });
+
     res.json({
       institution: inst.rows[0],
-      credentials: { staffId: creds.rows[0].admin_staff_id, password: creds.rows[0].admin_password },
+      credentials: {
+        staffId: creds.rows[0].admin_staff_id,
+        password: decrypt(creds.rows[0].admin_password),
+      },
       updatedAt: creds.rows[0].updated_at,
     });
   } catch (err) {
@@ -533,11 +612,47 @@ exports.getAdminCredentials = async (req, res) => {
   }
 };
 
+// Super admin: decrypted admin credentials (password, admin ID, institution
+// code) for EVERY institution in one call. Each row retrieval is audit-logged.
+exports.getAllAdminCredentials = async (req, res) => {
+  try {
+    const rows = await req.tenantDb.query(
+      `SELECT i.id AS institution_id, i.name AS institution_name, i.institution_code,
+              c.admin_staff_id, c.admin_password, c.updated_at
+       FROM institutions i
+       LEFT JOIN institution_admin_credentials c ON c.institution_id = i.id
+       ORDER BY i.created_at DESC`
+    );
+
+    await logAudit({
+      institutionId: req.user.institution_id,
+      action: 'view_all_admin_credentials',
+      entityType: 'institution',
+      entityId: null,
+      details: { count: rows.rows.length },
+      performedBy: req.user.id,
+      ipAddress: req.ip,
+    });
+
+    res.json(rows.rows.map((row) => ({
+      institutionId: row.institution_id,
+      name: row.institution_name,
+      code: row.institution_code,
+      adminStaffId: row.admin_staff_id || null,
+      adminPassword: row.admin_password ? decrypt(row.admin_password) : null,
+      updatedAt: row.updated_at || null,
+    })));
+  } catch (err) {
+    console.error('Get all admin credentials error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 // Super admin: create (if missing) or reset the admin credentials for an institution
 exports.createOrResetAdminCredentials = async (req, res) => {
   try {
     const { id } = req.params;
-    const inst = await pool.query(
+    const inst = await req.tenantDb.query(
       'SELECT id, name, institution_code FROM institutions WHERE id = $1',
       [id]
     );
@@ -545,7 +660,7 @@ exports.createOrResetAdminCredentials = async (req, res) => {
       return res.status(404).json({ error: 'Institution not found' });
     }
 
-    const existing = await pool.query(
+    const existing = await req.tenantDb.query(
       "SELECT id, staff_id FROM staff WHERE institution_id = $1 AND role IN ('admin','super_admin') ORDER BY created_at LIMIT 1",
       [id]
     );
@@ -556,10 +671,10 @@ exports.createOrResetAdminCredentials = async (req, res) => {
 
     if (existing.rows.length > 0) {
       staffId = existing.rows[0].staff_id;
-      await pool.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, existing.rows[0].id]);
-      await storeAdminCredentials(id, staffId, rawPassword);
+      await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, existing.rows[0].id]);
+      await storeAdminCredentials(id, staffId, rawPassword, req.tenantDb);
     } else {
-      const created = await createInitialAdminCredentials(id, rawPassword);
+      const created = await createInitialAdminCredentials(id, rawPassword, req.tenantDb);
       staffId = created.staffId;
     }
 

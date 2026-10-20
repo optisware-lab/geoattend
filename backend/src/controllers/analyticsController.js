@@ -6,13 +6,13 @@ exports.getAttendanceTrends = async (req, res) => {
     const institutionId = req.user.institution_id;
     const { days = 30 } = req.query;
 
-    const totalStaff = await pool.query(
+    const totalStaff = await req.tenantDb.query(
       "SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true",
       [institutionId]
     );
     const total = parseInt(totalStaff.rows[0].count);
 
-    const result = await pool.query(`
+    const result = await req.tenantDb.query(`
       SELECT
         ar.date,
         COUNT(DISTINCT ar.staff_uuid) as present,
@@ -49,7 +49,7 @@ exports.getTopAbsentees = async (req, res) => {
     const { days = 30 } = req.query;
 
     // Get working days count
-    const rules = await pool.query(
+    const rules = await req.tenantDb.query(
       "SELECT working_days FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
       [institutionId]
     );
@@ -63,7 +63,7 @@ exports.getTopAbsentees = async (req, res) => {
       if (workingDays.includes(d.getDay())) totalWorkDays++;
     }
 
-    const result = await pool.query(`
+    const result = await req.tenantDb.query(`
       SELECT s.id, s.staff_id, s.first_name, s.last_name, s.department,
              COUNT(ar.id) as days_present,
              COUNT(CASE WHEN ar.is_late THEN 1 END) as days_late
@@ -98,7 +98,7 @@ exports.getDepartmentStats = async (req, res) => {
     const institutionId = req.user.institution_id;
     const { days = 30 } = req.query;
 
-    const result = await pool.query(`
+    const result = await req.tenantDb.query(`
       SELECT
         s.department,
         COUNT(DISTINCT s.id) as total_members,
@@ -135,7 +135,7 @@ exports.getOvertimeSummary = async (req, res) => {
     const institutionId = req.user.institution_id;
     const { days = 30 } = req.query;
 
-    const result = await pool.query(`
+    const result = await req.tenantDb.query(`
       SELECT s.staff_id, s.first_name, s.last_name, s.department,
              COUNT(o.id) as overtime_days,
              SUM(o.overtime_minutes) as total_overtime_minutes,
@@ -190,7 +190,7 @@ exports.getAuditLogs = async (req, res) => {
     query += ` ORDER BY al.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
 
     res.json({
       logs: result.rows,

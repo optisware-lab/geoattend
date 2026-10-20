@@ -70,6 +70,7 @@ export const deleteStaff = (id) => api.delete(`/staff/${id}`);
 export const getInstitution = () => api.get('/institutions/current');
 export const updateInstitution = (data) => api.put('/institutions/current', data);
 export const getInstitutionQR = () => api.get('/institutions/qr-code');
+export const rotateInstitutionQR = () => api.post('/institutions/qr-code/rotate');
 export const getAttendanceRules = (params) => api.get('/institutions/rules', { params });
 export const updateAttendanceRules = (data, params) => api.put('/institutions/rules', data, { params });
 // Long timeout: the free Render instance can take ~50s to wake up
@@ -118,5 +119,15 @@ export const getDepartmentAnalytics = (params) => api.get('/analytics/department
 export const getOvertimeSummary = (params) => api.get('/analytics/overtime', { params });
 export const getAuditLogs = (params) => api.get('/analytics/audit-logs', { params });
 export const getSchedulerStatus = () => api.get('/analytics/scheduler');
+
+// Payroll
+export const getPayrollSummary = (params) => api.get('/payroll/summary', { params });
+export const getPayrollDaily = (params) => api.get('/payroll/daily', { params });
+export const getPayrollCsvUrl = (params) => {
+  const query = new URLSearchParams(params).toString();
+  return `${API_BASE_URL}/payroll/summary.csv?${query}`;
+};
+// Staff own earnings (used on account pages for non-admin roles)
+export const getMyEarnings = (params) => api.get('/payroll/my-earnings', { params });
 
 export default api;

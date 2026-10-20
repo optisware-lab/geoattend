@@ -18,6 +18,7 @@ import CreateInstitution from './pages/CreateInstitution';
 import Institutions from './pages/Institutions';
 import Analytics from './pages/Analytics';
 import AuditLog from './pages/AuditLog';
+import Payroll from './pages/Payroll';
 import Sidebar from './components/Sidebar';
 
 function App() {
@@ -109,6 +110,7 @@ function App() {
             <Route path="/request-leave" element={<RequestLeave />} />
             <Route path="/institutions/new" element={<CreateInstitution />} />
             <Route path="/analytics" element={<Analytics />} />
+            <Route path="/payroll" element={<Payroll />} />
             <Route path="/audit" element={<AuditLog />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/settings" element={<Settings />} />

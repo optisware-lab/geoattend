@@ -277,26 +277,38 @@ async function rotateQRCodes() {
 }
 
 // ─── START ALL SCHEDULED JOBS ───────────────────────────────────────────────
+// Cron jobs run without a user, so each one executes on a connection with the
+// RLS system bypass. The wrapper also keeps the console-error contract.
+function guarded(name, fn) {
+  return async () => {
+    try {
+      await pool.withSystemContext(() => fn());
+    } catch (err) {
+      console.error(`[Scheduler] ${name} error:`, err.message);
+    }
+  };
+}
+
 function startScheduler() {
   console.log('[Scheduler] Starting scheduled jobs...');
 
   // Auto check-out: every day at 5:30 PM (17:30)
-  cron.schedule('30 17 * * 1-5', autoCheckOut, { timezone: 'Africa/Accra' });
+  cron.schedule('30 17 * * 1-5', guarded('Auto check-out', autoCheckOut), { timezone: 'Africa/Accra' });
 
   // Absence detection: every working day at 10:00 AM (after late threshold)
-  cron.schedule('0 10 * * 1-5', detectAbsences, { timezone: 'Africa/Accra' });
+  cron.schedule('0 10 * * 1-5', guarded('Absence detection', detectAbsences), { timezone: 'Africa/Accra' });
 
   // Daily summary: every working day at 6:00 PM
-  cron.schedule('0 18 * * 1-5', sendDailyReport, { timezone: 'Africa/Accra' });
+  cron.schedule('0 18 * * 1-5', guarded('Daily report', sendDailyReport), { timezone: 'Africa/Accra' });
 
   // Weekly summary: every Friday at 6:30 PM
-  cron.schedule('30 18 * * 5', sendWeeklyReport, { timezone: 'Africa/Accra' });
+  cron.schedule('30 18 * * 5', guarded('Weekly report', sendWeeklyReport), { timezone: 'Africa/Accra' });
 
   // Auto-suspend inactive accounts: every Sunday at midnight
-  cron.schedule('0 0 * * 0', autoSuspendInactive, { timezone: 'Africa/Accra' });
+  cron.schedule('0 0 * * 0', guarded('Auto-suspend', autoSuspendInactive), { timezone: 'Africa/Accra' });
 
   // QR code rotation: first day of every month at 2:00 AM
-  cron.schedule('0 2 1 * *', rotateQRCodes, { timezone: 'Africa/Accra' });
+  cron.schedule('0 2 1 * *', guarded('QR rotation', rotateQRCodes), { timezone: 'Africa/Accra' });
 
   console.log('[Scheduler] Scheduled jobs:');
   console.log('  - Auto check-out: Mon-Fri 5:30 PM');

@@ -1,9 +1,8 @@
-const pool = require('../config/database');
 const { isWithinGeofence } = require('../utils/geofence');
 
-async function logFraudEvent({ institutionId, staffUuid, eventType, details, ipAddress }) {
+async function logFraudEvent(db, { institutionId, staffUuid, eventType, details, ipAddress }) {
   try {
-    await pool.query(
+    await db.query(
       `INSERT INTO fraud_events (institution_id, staff_uuid, event_type, details, ip_address)
        VALUES ($1, $2, $3, $4::jsonb, $5)`,
       [institutionId, staffUuid || null, eventType, details ? JSON.stringify(details) : null, ipAddress || null]
@@ -13,9 +12,58 @@ async function logFraudEvent({ institutionId, staffUuid, eventType, details, ipA
   }
 }
 
+/** Institution entrance QR payload looks like `INST-<uuid>`; returns the uuid or null. */
+function parseInstitutionQrCode(qrCode) {
+  if (typeof qrCode !== 'string' || !qrCode.startsWith('INST-')) return null;
+  return qrCode.slice(5);
+}
+
+/** Day-level earnings estimate for institutions that pay an hourly rate. */
+function computeEarningsEstimate(record, staffRate, workEndTime, overtimeMultiplier) {
+  if (!record || !staffRate) return { hoursToday: null, estimatedEarnings: null, overtimeMultiplier };
+  const start = new Date(record.check_in_time);
+  const end = record.check_out_time ? new Date(record.check_out_time) : new Date();
+  const hoursToday = Math.max(0, (end - start) / 3600000);
+
+  let overtimeHours = 0;
+  if (workEndTime) {
+    const [endHour, endMin] = workEndTime.split(':').map(Number);
+    const workEnd = new Date(record.check_in_time);
+    workEnd.setHours(endHour, endMin, 0, 0);
+    if (end > workEnd) {
+      overtimeHours = Math.max(0, Math.min((end - workEnd) / 3600000, hoursToday));
+    }
+  }
+
+  const multiplier = overtimeMultiplier && overtimeMultiplier > 0 ? overtimeMultiplier : 1;
+  const estimatedEarnings = staffRate * (hoursToday - overtimeHours) + staffRate * multiplier * overtimeHours;
+  return { hoursToday, estimatedEarnings, overtimeMultiplier: multiplier };
+}
+
+async function loadEarningsContext(db, institutionId, staffUuid) {
+  const institution = await db.query(
+    'SELECT latitude, longitude, geofence_radius, payment_mode, currency, qr_rotation_token FROM institutions WHERE id = $1',
+    [institutionId]
+  );
+  const staff = await db.query(
+    'SELECT hourly_rate FROM staff WHERE id = $1',
+    [staffUuid]
+  );
+  const rules = await db.query(
+    "SELECT work_start_time, work_end_time, late_threshold_minutes, overtime_multiplier FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
+    [institutionId]
+  );
+  return {
+    institution: institution.rows[0] || null,
+    staffRate: staff.rows[0]?.hourly_rate ? parseFloat(staff.rows[0].hourly_rate) : null,
+    rules: rules.rows[0] || null,
+  };
+}
+
 exports.checkIn = async (req, res) => {
+  const db = req.tenantDb;
   try {
-    const { latitude, longitude, method, deviceId, qrCode } = req.body;
+    const { latitude, longitude, method, deviceId, qrCode, qrToken } = req.body;
     const staffUuid = req.user.id;
     const institutionId = req.user.institution_id;
 
@@ -25,33 +73,81 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ error: 'Invalid check-in method' });
     }
 
-    // For QR code check-in, verify the QR code belongs to this staff
+    // Payments / geofence context
+    const { institution: inst, staffRate, rules } = await loadEarningsContext(db, institutionId, staffUuid);
+
+    // ── Location is REQUIRED for every check-in method ──────────────────────
+    // Scanning QR or tapping GPS from home must never produce a valid record.
+    if (!latitude || !longitude) {
+      await logFraudEvent(db, {
+        institutionId,
+        staffUuid,
+        eventType: 'missing_location_attempt',
+        details: { method, date: new Date().toISOString() },
+        ipAddress: req.ip,
+      });
+      return res.status(400).json({
+        error: 'Location required — turn on GPS and allow location access, then try again.',
+      });
+    }
+
+    // ── QR code validation ───────────────────────────────────────────────────
     if (method === 'qr_code' && qrCode) {
-      const qrResult = await pool.query(
-        'SELECT id FROM staff WHERE qr_code_data = $1 AND id = $2',
-        [qrCode, staffUuid]
-      );
-      if (qrResult.rows.length === 0) {
-        await logFraudEvent({
-          institutionId,
-          staffUuid,
-          eventType: 'invalid_qr_attempt',
-          details: { method, qrCode: String(qrCode || '').slice(0, 30) },
-          ipAddress: req.ip,
-        });
-        return res.status(400).json({ error: 'Invalid QR code' });
+      const institutionQrId = parseInstitutionQrCode(qrCode);
+      if (institutionQrId) {
+        // Entrance QR printed and posted by the admin. The scanner must belong
+        // to this institution, and (once a token has been issued) must carry
+        // the current rotation token so an old photo of a retired poster
+        // cannot be replayed.
+        if (institutionQrId !== String(institutionId)) {
+          await logFraudEvent(db, {
+            institutionId,
+            staffUuid,
+            eventType: 'wrong_institution_qr',
+            details: { qrCode: qrCode.slice(0, 40), method },
+            ipAddress: req.ip,
+          });
+          return res.status(400).json({ error: 'This QR code belongs to a different institution' });
+        }
+        const rotationToken = inst?.qr_rotation_token || null;
+        if (rotationToken && String(qrToken || '') !== String(rotationToken)) {
+          await logFraudEvent(db, {
+            institutionId,
+            staffUuid,
+            eventType: 'stale_qr_attempt',
+            details: { method },
+            ipAddress: req.ip,
+          });
+          return res.status(400).json({ error: 'This entrance QR code has expired. Ask your admin to scan the current poster.' });
+        }
+      } else {
+        // Personal ID-card QR: the code must belong to the requesting staff
+        const qrResult = await db.query(
+          'SELECT id FROM staff WHERE qr_code_data = $1 AND id = $2',
+          [qrCode, staffUuid]
+        );
+        if (qrResult.rows.length === 0) {
+          await logFraudEvent(db, {
+            institutionId,
+            staffUuid,
+            eventType: 'invalid_qr_attempt',
+            details: { method, qrCode: String(qrCode || '').slice(0, 30) },
+            ipAddress: req.ip,
+          });
+          return res.status(400).json({ error: 'Invalid QR code' });
+        }
       }
     }
 
     // Check for duplicate check-in today
     const today = new Date().toISOString().split('T')[0];
-    const existing = await pool.query(
+    const existing = await db.query(
       'SELECT id, check_out_time FROM attendance_records WHERE staff_uuid = $1 AND date = $2 ORDER BY check_in_time DESC LIMIT 1',
       [staffUuid, today]
     );
 
     if (existing.rows.length > 0 && !existing.rows[0].check_out_time) {
-      await logFraudEvent({
+      await logFraudEvent(db, {
         institutionId,
         staffUuid,
         eventType: 'duplicate_checkin_attempt',
@@ -61,82 +157,78 @@ exports.checkIn = async (req, res) => {
       return res.status(400).json({ error: 'You already have an active check-in. Please check out first.' });
     }
 
-    // GPS geofence verification (required for GPS method, optional for others)
-    let withinGeofence = true;
-    if (latitude && longitude) {
-      const institution = await pool.query(
-        'SELECT latitude, longitude, geofence_radius FROM institutions WHERE id = $1',
-        [institutionId]
+    // ── Geofence verification (required for every method) ────────────────────
+    let withinGeofence = false;
+    if (inst) {
+      const geofenceCheck = isWithinGeofence(
+        latitude, longitude,
+        parseFloat(inst.latitude), parseFloat(inst.longitude),
+        inst.geofence_radius
       );
+      withinGeofence = geofenceCheck.isWithin;
 
-      if (institution.rows.length > 0) {
-        const inst = institution.rows[0];
-        const geofenceCheck = isWithinGeofence(
-          latitude, longitude,
-          parseFloat(inst.latitude), parseFloat(inst.longitude),
-          inst.geofence_radius
-        );
-        withinGeofence = geofenceCheck.isWithin;
-
-        if (method === 'gps' && !withinGeofence) {
-          await logFraudEvent({
-            institutionId,
-            staffUuid,
-            eventType: 'outside_geofence_attempt',
-            details: { distance: geofenceCheck.distance, radius: geofenceCheck.radius, method },
-            ipAddress: req.ip,
-          });
-          return res.status(403).json({
-            error: 'You are outside the institution geofence',
-            distance: geofenceCheck.distance,
-            radius: geofenceCheck.radius,
-          });
-        }
+      if (!withinGeofence) {
+        await logFraudEvent(db, {
+          institutionId,
+          staffUuid,
+          eventType: 'outside_geofence_attempt',
+          details: { distance: geofenceCheck.distance, radius: geofenceCheck.radius, method },
+          ipAddress: req.ip,
+        });
+        return res.status(403).json({
+          error: 'You are outside the institution geofence',
+          distance: geofenceCheck.distance,
+          radius: geofenceCheck.radius,
+        });
       }
-    } else if (method === 'gps') {
-      return res.status(400).json({ error: 'GPS coordinates are required for GPS check-in' });
+    } else {
+      return res.status(400).json({ error: 'Institution geofence not configured' });
     }
 
     // Check if late
-    const rules = await pool.query(
-      "SELECT work_start_time, late_threshold_minutes FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
-      [institutionId]
-    );
-
     let isLate = false;
-    if (rules.rows.length > 0) {
-      const rule = rules.rows[0];
+    if (rules) {
       const now = new Date();
-      const [startHour, startMin] = rule.work_start_time.split(':').map(Number);
+      const [startHour, startMin] = rules.work_start_time.split(':').map(Number);
       const lateTime = new Date(now);
-      lateTime.setHours(startHour, startMin + rule.late_threshold_minutes, 0, 0);
+      lateTime.setHours(startHour, startMin + (rules.late_threshold_minutes || 0), 0, 0);
       isLate = now > lateTime;
     }
 
     // Record check-in
-    const record = await pool.query(
+    const record = await db.query(
       `INSERT INTO attendance_records
         (staff_uuid, institution_id, check_in_time, check_in_latitude, check_in_longitude,
          check_in_method, device_id, is_late, is_within_geofence, date)
        VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [staffUuid, institutionId, latitude || null, longitude || null, method, deviceId || null, isLate, withinGeofence, today]
+      [staffUuid, institutionId, latitude, longitude, method, deviceId || null, isLate, withinGeofence, today]
     );
 
     // Log device
     if (deviceId) {
-      await pool.query(
+      await db.query(
         `INSERT INTO device_logs (staff_uuid, device_id, action, ip_address)
          VALUES ($1, $2, 'check_in', $3)`,
         [staffUuid, deviceId, req.ip]
       );
     }
 
+    const earnings = inst?.payment_mode === 'hourly'
+      ? computeEarningsEstimate(record.rows[0], staffRate, rules?.work_end_time, rules?.overtime_multiplier)
+      : null;
+
     res.status(201).json({
       message: 'Check-in successful',
       record: record.rows[0],
       isLate,
       withinGeofence,
+      payment: {
+        mode: inst?.payment_mode || 'monthly',
+        currency: inst?.currency || 'GHS',
+        hourlyRate: staffRate,
+        ...earnings,
+      },
     });
   } catch (err) {
     console.error('Check-in error:', err);
@@ -145,13 +237,15 @@ exports.checkIn = async (req, res) => {
 };
 
 exports.checkOut = async (req, res) => {
+  const db = req.tenantDb;
   try {
     const { latitude, longitude, method, deviceId } = req.body;
     const staffUuid = req.user.id;
+    const institutionId = req.user.institution_id;
     const today = new Date().toISOString().split('T')[0];
 
     // Find active check-in
-    const active = await pool.query(
+    const active = await db.query(
       'SELECT id FROM attendance_records WHERE staff_uuid = $1 AND date = $2 AND check_out_time IS NULL ORDER BY check_in_time DESC LIMIT 1',
       [staffUuid, today]
     );
@@ -160,46 +254,69 @@ exports.checkOut = async (req, res) => {
       return res.status(400).json({ error: 'No active check-in found' });
     }
 
-    // GPS verification for check-out
-    if (latitude && longitude) {
-      const institution = await pool.query(
-        'SELECT latitude, longitude, geofence_radius FROM institutions WHERE id = $1',
-        [req.user.institution_id]
+    // ── Location is REQUIRED for check-out too ───────────────────────────────
+    if (!latitude || !longitude) {
+      await logFraudEvent(db, {
+        institutionId,
+        staffUuid,
+        eventType: 'missing_location_attempt',
+        details: { method, action: 'check_out', date: today },
+        ipAddress: req.ip,
+      });
+      return res.status(400).json({
+        error: 'Location required — turn on GPS and allow location access, then try again.',
+      });
+    }
+
+    // ── Geofence verification (required for every method) ────────────────────
+    const instResult = await db.query(
+      'SELECT latitude, longitude, geofence_radius, payment_mode, currency FROM institutions WHERE id = $1',
+      [institutionId]
+    );
+    const inst = instResult.rows[0];
+    if (inst) {
+      const geofenceCheck = isWithinGeofence(
+        latitude, longitude,
+        parseFloat(inst.latitude), parseFloat(inst.longitude),
+        inst.geofence_radius
       );
 
-      if (institution.rows.length > 0) {
-        const inst = institution.rows[0];
-        const geofenceCheck = isWithinGeofence(
-          latitude, longitude,
-          parseFloat(inst.latitude), parseFloat(inst.longitude),
-          inst.geofence_radius
-        );
-
-        if (method === 'gps' && !geofenceCheck.isWithin) {
-          return res.status(403).json({
-            error: 'You are outside the institution geofence',
-            distance: geofenceCheck.distance,
-            radius: geofenceCheck.radius,
-          });
-        }
+      // Someone who already left the premises cannot close the day from home.
+      if (!geofenceCheck.isWithin) {
+        await logFraudEvent(db, {
+          institutionId,
+          staffUuid,
+          eventType: 'outside_geofence_attempt',
+          details: { distance: geofenceCheck.distance, radius: geofenceCheck.radius, method, action: 'check_out' },
+          ipAddress: req.ip,
+        });
+        return res.status(403).json({
+          error: 'You are outside the institution geofence',
+          distance: geofenceCheck.distance,
+          radius: geofenceCheck.radius,
+        });
       }
     }
 
-    const record = await pool.query(
+    const record = await db.query(
       `UPDATE attendance_records
        SET check_out_time = NOW(), check_out_latitude = $1, check_out_longitude = $2, check_out_method = $3
        WHERE id = $4
        RETURNING *`,
-      [latitude || null, longitude || null, method || 'gps', active.rows[0].id]
+      [latitude, longitude, method || 'gps', active.rows[0].id]
     );
 
     // Track overtime if checking out after work end time
+    let overtimeMultiplierDecimal = null;
+    let workEndTimeForEarnings = null;
     try {
-      const rules = await pool.query(
-        "SELECT work_end_time FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
-        [req.user.institution_id]
+      const rules = await db.query(
+        "SELECT work_end_time, overtime_multiplier FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'",
+        [institutionId]
       );
       if (rules.rows.length > 0) {
+        overtimeMultiplierDecimal = parseFloat(rules.rows[0].overtime_multiplier);
+        workEndTimeForEarnings = rules.rows[0].work_end_time;
         const now = new Date();
         const [endHour, endMin] = rules.rows[0].work_end_time.split(':').map(Number);
         const endTime = new Date(now);
@@ -207,11 +324,11 @@ exports.checkOut = async (req, res) => {
         if (now > endTime) {
           const overtimeMinutes = Math.round((now - endTime) / 60000);
           if (overtimeMinutes > 0) {
-            await pool.query(
+            await db.query(
               `INSERT INTO overtime_records (staff_uuid, institution_id, date, overtime_minutes, reason)
                VALUES ($1, $2, $3, $4, 'manual_checkout')
                ON CONFLICT DO NOTHING`,
-              [staffUuid, req.user.institution_id, today, overtimeMinutes]
+              [staffUuid, institutionId, today, overtimeMinutes]
             );
           }
         }
@@ -221,14 +338,29 @@ exports.checkOut = async (req, res) => {
     }
 
     if (deviceId) {
-      await pool.query(
+      await db.query(
         `INSERT INTO device_logs (staff_uuid, device_id, action, ip_address)
          VALUES ($1, $2, 'check_out', $3)`,
         [staffUuid, deviceId, req.ip]
       );
     }
 
-    res.json({ message: 'Check-out successful', record: record.rows[0] });
+    const staffRate = await db.query('SELECT hourly_rate FROM staff WHERE id = $1', [staffUuid]);
+    const rate = staffRate.rows[0]?.hourly_rate ? parseFloat(staffRate.rows[0].hourly_rate) : null;
+    const earnings = inst?.payment_mode === 'hourly'
+      ? computeEarningsEstimate(record.rows[0], rate, workEndTimeForEarnings, overtimeMultiplierDecimal)
+      : null;
+
+    res.json({
+      message: 'Check-out successful',
+      record: record.rows[0],
+      payment: {
+        mode: inst?.payment_mode || 'monthly',
+        currency: inst?.currency || 'GHS',
+        hourlyRate: rate,
+        ...earnings,
+      },
+    });
   } catch (err) {
     console.error('Check-out error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -236,6 +368,7 @@ exports.checkOut = async (req, res) => {
 };
 
 exports.getMyAttendance = async (req, res) => {
+  const db = req.tenantDb;
   try {
     const { startDate, endDate, page = 1, limit = 30 } = req.query;
     const offset = (page - 1) * limit;
@@ -259,7 +392,7 @@ exports.getMyAttendance = async (req, res) => {
     query += ` ORDER BY date DESC, check_in_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await db.query(query, params);
 
     // Get total count
     let countQuery = 'SELECT COUNT(*) FROM attendance_records WHERE staff_uuid = $1';
@@ -269,7 +402,7 @@ exports.getMyAttendance = async (req, res) => {
     if (startDate) countQuery += ' AND date >= $2';
     if (endDate) countQuery += ` AND date <= $${countParams.length}`;
 
-    const countResult = await pool.query(countQuery, countParams);
+    const countResult = await db.query(countQuery, countParams);
 
     res.json({
       records: result.rows,
@@ -284,9 +417,10 @@ exports.getMyAttendance = async (req, res) => {
 };
 
 exports.getTodayStatus = async (req, res) => {
+  const db = req.tenantDb;
   try {
     const today = new Date().toISOString().split('T')[0];
-    const result = await pool.query(
+    const result = await db.query(
       'SELECT * FROM attendance_records WHERE staff_uuid = $1 AND date = $2 ORDER BY check_in_time DESC LIMIT 1',
       [req.user.id, today]
     );
@@ -306,11 +440,12 @@ exports.getTodayStatus = async (req, res) => {
 };
 
 exports.getWeeklyStats = async (req, res) => {
+  const db = req.tenantDb;
   try {
     const staffUuid = req.user.id;
 
     // Get stats for the current month
-    const result = await pool.query(
+    const result = await db.query(
       `SELECT
          COUNT(*) FILTER (WHERE check_in_time IS NOT NULL) as total_present,
          COUNT(*) FILTER (WHERE is_late = true) as total_late,
@@ -324,8 +459,9 @@ exports.getWeeklyStats = async (req, res) => {
     );
 
     // Get this week's records
-    const weekResult = await pool.query(
-      `SELECT date, check_in_time, check_out_time, is_late
+    const weekResult = await db.query(
+      `SELECT date, check_in_time, check_out_time, is_late,
+              premises_left_at, premises_returned_at
        FROM attendance_records
        WHERE staff_uuid = $1
          AND date >= date_trunc('week', CURRENT_DATE)
@@ -335,7 +471,7 @@ exports.getWeeklyStats = async (req, res) => {
     );
 
     // Get working days this month from rules
-    const rulesResult = await pool.query(
+    const rulesResult = await db.query(
       `SELECT working_days FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'`,
       [req.user.institution_id]
     );

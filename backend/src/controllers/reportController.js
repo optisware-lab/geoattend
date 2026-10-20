@@ -8,22 +8,22 @@ exports.getDashboardStats = async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
 
     const [totalStaff, presentToday, lateToday, absentToday] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [institutionId]),
-      pool.query(
+      req.tenantDb.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [institutionId]),
+      req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
          WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff'`,
         [institutionId, today]
       ),
-      pool.query(
+      req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
          WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff'`,
         [institutionId, today]
       ),
-      pool.query(
+      req.tenantDb.query(
         `SELECT COUNT(*) FROM staff s
          WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
          AND s.id NOT IN (
@@ -52,21 +52,21 @@ exports.getTodaySummary = async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
 
     const [presentToday, lateToday, absentToday] = await Promise.all([
-      pool.query(
+      req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
          WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff'`,
         [institutionId, today]
       ),
-      pool.query(
+      req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
          WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff'`,
         [institutionId, today]
       ),
-      pool.query(
+      req.tenantDb.query(
         `SELECT COUNT(*)
          FROM staff s
          WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
@@ -117,7 +117,7 @@ exports.getFraudReport = async (req, res) => {
     query += ` ORDER BY f.created_at DESC LIMIT $${i} OFFSET $${i + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
     res.json({ events: result.rows, page: parseInt(page, 10), limit: parseInt(limit, 10) });
   } catch (err) {
     console.error('Fraud report error:', err);
@@ -149,6 +149,7 @@ exports.getAttendanceReport = async (req, res) => {
 
     let query = `
       SELECT ar.id, ar.date, ar.check_in_time, ar.check_out_time, ar.check_in_method, ar.is_late,
+             ar.premises_left_at, ar.premises_returned_at,
              s.staff_id, s.first_name, s.last_name, s.department, s.position
       FROM staff s
       LEFT JOIN attendance_records ar ON ${joinConditions}
@@ -168,7 +169,7 @@ exports.getAttendanceReport = async (req, res) => {
     query += ` ORDER BY ar.date DESC NULLS LAST, s.last_name, s.first_name, ar.check_in_time DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
 
     res.json({
       records: result.rows,
@@ -186,7 +187,7 @@ exports.getRealTimeAttendance = async (req, res) => {
     const institutionId = req.user.institution_id;
     const today = new Date().toISOString().split('T')[0];
 
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       `SELECT ar.*, s.staff_id, s.first_name, s.last_name, s.department, s.position, s.profile_photo_url
        FROM attendance_records ar
        JOIN staff s ON ar.staff_uuid = s.id
@@ -254,7 +255,7 @@ exports.getGeofenceEvents = async (req, res) => {
     `;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
     res.json({
       events: result.rows,
       page: parseInt(page, 10),
@@ -269,7 +270,7 @@ exports.getGeofenceEvents = async (req, res) => {
 exports.getWeeklySummary = async (req, res) => {
   try {
     const institutionId = req.user.institution_id;
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       `SELECT
         ar.date,
         COUNT(DISTINCT ar.staff_uuid) as present,
@@ -297,7 +298,8 @@ exports.exportExcel = async (req, res) => {
 
     let query = `
       SELECT ar.date, s.staff_id, s.first_name, s.last_name, s.department, s.position,
-             ar.check_in_time, ar.check_out_time, ar.check_in_method, ar.is_late, ar.is_within_geofence
+             ar.check_in_time, ar.check_out_time, ar.check_in_method, ar.is_late, ar.is_within_geofence,
+             ar.premises_left_at, ar.premises_returned_at
       FROM attendance_records ar
       JOIN staff s ON ar.staff_uuid = s.id
       WHERE ar.institution_id = $1 AND s.member_type = 'staff'`;
@@ -309,7 +311,7 @@ exports.exportExcel = async (req, res) => {
     if (department) { query += ` AND s.department = $${paramIndex}`; params.push(department); paramIndex++; }
 
     query += ' ORDER BY ar.date DESC, s.last_name';
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
 
     const wb = new excel4node.Workbook();
     const ws = wb.addWorksheet('Attendance Report');
@@ -320,7 +322,7 @@ exports.exportExcel = async (req, res) => {
       alignment: { horizontal: 'center' },
     });
 
-    const headers = ['Date', 'Staff ID', 'First Name', 'Last Name', 'Department', 'Position', 'Check In', 'Check Out', 'Method', 'Late', 'Within Geofence'];
+    const headers = ['Date', 'Staff ID', 'First Name', 'Last Name', 'Department', 'Position', 'Check In', 'Check Out', 'Method', 'Late', 'Within Geofence', 'Left Premises', 'Returned'];
     headers.forEach((h, i) => ws.cell(1, i + 1).string(h).style(headerStyle));
 
     result.rows.forEach((row, i) => {
@@ -336,6 +338,8 @@ exports.exportExcel = async (req, res) => {
       ws.cell(r, 9).string(row.check_in_method || '');
       ws.cell(r, 10).string(row.is_late ? 'Yes' : 'No');
       ws.cell(r, 11).string(row.is_within_geofence ? 'Yes' : 'No');
+      ws.cell(r, 12).string(row.premises_left_at ? new Date(row.premises_left_at).toLocaleTimeString() : '');
+      ws.cell(r, 13).string(row.premises_returned_at ? new Date(row.premises_returned_at).toLocaleTimeString() : '');
     });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -354,7 +358,7 @@ exports.exportPDF = async (req, res) => {
     const institutionId = req.user.institution_id;
 
     // Get institution info
-    const instResult = await pool.query('SELECT name FROM institutions WHERE id = $1', [institutionId]);
+    const instResult = await req.tenantDb.query('SELECT name FROM institutions WHERE id = $1', [institutionId]);
     const institutionName = instResult.rows[0]?.name || 'Institution';
 
     // Use LEFT JOIN so absent staff also appear in PDF
@@ -375,7 +379,7 @@ exports.exportPDF = async (req, res) => {
     if (department) { query += ` AND s.department = $${paramIndex}`; params.push(department); paramIndex++; }
 
     query += ' ORDER BY ar.date DESC NULLS LAST, s.last_name';
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
 

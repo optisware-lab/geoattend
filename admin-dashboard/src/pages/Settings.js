@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import { FiSave, FiMapPin, FiCrosshair, FiPrinter, FiDownload, FiShare2 } from 'react-icons/fi';
-import { getInstitution, updateInstitution, getAttendanceRules, updateAttendanceRules, getInstitutionQR } from '../services/api';
+import { FiSave, FiMapPin, FiCrosshair, FiPrinter, FiDownload, FiShare2, FiRefreshCw } from 'react-icons/fi';
+import { getInstitution, updateInstitution, getAttendanceRules, updateAttendanceRules, getInstitutionQR, rotateInstitutionQR } from '../services/api';
 
 const styles = {
   title: { fontSize: '24px', fontWeight: '700', marginBottom: '24px' },
@@ -40,8 +40,8 @@ const styles = {
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function Settings() {
-  const [inst, setInst] = useState({ name: '', address: '', city: '', region: '', latitude: '', longitude: '', geofence_radius: 200 });
-  const [rules, setRules] = useState({ work_start_time: '08:00', work_end_time: '17:00', late_threshold_minutes: 15, early_departure_minutes: 30, working_days: [1,2,3,4,5] });
+  const [inst, setInst] = useState({ name: '', address: '', city: '', region: '', latitude: '', longitude: '', geofence_radius: 200, payment_mode: 'monthly', currency: 'GHS' });
+  const [rules, setRules] = useState({ work_start_time: '08:00', work_end_time: '17:00', late_threshold_minutes: 15, early_departure_minutes: 30, working_days: [1,2,3,4,5], overtime_multiplier: 1.5 });
   const [gettingLocation, setGettingLocation] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
 
@@ -108,6 +108,8 @@ export default function Settings() {
         name: inst.name, address: inst.address, city: inst.city, region: inst.region,
         latitude: parseFloat(inst.latitude), longitude: parseFloat(inst.longitude),
         geofenceRadius: parseInt(inst.geofence_radius, 10),
+        paymentMode: inst.payment_mode || 'monthly',
+        currency: inst.currency || 'GHS',
       });
       toast.success('Institution settings saved');
     } catch { toast.error('Failed to save'); }
@@ -121,6 +123,7 @@ export default function Settings() {
         lateThresholdMinutes: parseInt(rules.late_threshold_minutes, 10),
         earlyDepartureMinutes: parseInt(rules.early_departure_minutes, 10),
         workingDays: rules.working_days,
+        overtimeMultiplier: rules.overtime_multiplier ? parseFloat(rules.overtime_multiplier) : 1.5,
       });
       toast.success('Attendance rules saved');
     } catch { toast.error('Failed to save'); }
@@ -190,6 +193,24 @@ export default function Settings() {
             <input style={styles.input} type="number" value={inst.geofence_radius || ''} onChange={e => setInst(p => ({ ...p, geofence_radius: e.target.value }))} />
             <span style={styles.hint}>Area within which staff can check in (recommended: 100-500m)</span>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={styles.field}>
+              <label style={styles.label}>Payment Mode</label>
+              <select
+                style={styles.input}
+                value={inst.payment_mode || 'monthly'}
+                onChange={e => setInst(p => ({ ...p, payment_mode: e.target.value }))}
+              >
+                <option value="monthly">Monthly Salary</option>
+                <option value="hourly">Hourly Rate (payroll auto-calc)</option>
+              </select>
+              <span style={styles.hint}>Hourly mode enables per-staff earnings on the Payroll page</span>
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Currency</label>
+              <input style={styles.input} placeholder="GHS" maxLength={10} value={inst.currency || ''} onChange={e => setInst(p => ({ ...p, currency: e.target.value.toUpperCase() }))} />
+            </div>
+          </div>
           <button
             style={styles.saveBtn}
             onClick={saveInstitution}
@@ -219,6 +240,11 @@ export default function Settings() {
           <div style={styles.field}>
             <label style={styles.label}>Early Departure (minutes before end)</label>
             <input style={styles.input} type="number" value={rules.early_departure_minutes || ''} onChange={e => setRules(p => ({ ...p, early_departure_minutes: e.target.value }))} />
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label}>Overtime Multiplier</label>
+            <input style={styles.input} type="number" step="0.25" min="1" max="3" value={rules.overtime_multiplier || ''} onChange={e => setRules(p => ({ ...p, overtime_multiplier: e.target.value }))} />
+            <span style={styles.hint}>Hourly pay multiplier for overtime (e.g. 1.5 = time and a half)</span>
           </div>
           <div style={styles.field}>
             <label style={styles.label}>Working Days</label>
@@ -256,6 +282,7 @@ function InstitutionQR() {
   const [qrCode, setQrCode] = React.useState(null);
   const [institutionName, setInstitutionName] = React.useState('');
   const [loading, setLoading] = React.useState(false);
+  const [rotating, setRotating] = React.useState(false);
 
   const generateQR = async () => {
     setLoading(true);
@@ -267,6 +294,23 @@ function InstitutionQR() {
       toast.error('Failed to generate QR code');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const rotateQR = async () => {
+    if (!window.confirm('Rotate the QR token? Old printed posters will STOP working — reprint and replace them at your entrances.')) return;
+    setRotating(true);
+    try {
+      const { data } = await rotateInstitutionQR();
+      if (data && data.qrCode) {
+        setQrCode(data.qrCode);
+        setInstitutionName(data.institutionName);
+      }
+      toast.success(data?.message || 'QR token rotated — print the new code');
+    } catch {
+      toast.error('Failed to rotate QR token');
+    } finally {
+      setRotating(false);
     }
   };
 
@@ -407,7 +451,22 @@ function InstitutionQR() {
             >
               Regenerate
             </button>
+            <button
+              onClick={rotateQR}
+              disabled={rotating}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '10px 24px', background: '#e74c3c', color: '#fff',
+                borderRadius: '8px', fontSize: '13px', fontWeight: '600',
+                border: 'none', cursor: 'pointer', opacity: rotating ? 0.7 : 1,
+              }}
+            >
+              <FiRefreshCw size={14} /> {rotating ? 'Rotating...' : 'Invalidate Old Posters'}
+            </button>
           </div>
+          <p style={{ fontSize: '11px', color: '#e74c3c', marginTop: '10px' }}>
+            Use "Invalidate Old Posters" if a code was leaked or copied — it issues a new token so any previously printed QR stops working.
+          </p>
         </div>
       )}
     </div>

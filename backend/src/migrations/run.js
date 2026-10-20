@@ -223,6 +223,18 @@ CREATE TABLE IF NOT EXISTS fraud_events (
 ALTER TABLE institutions ADD COLUMN IF NOT EXISTS qr_rotation_token VARCHAR(255);
 ALTER TABLE institutions ADD COLUMN IF NOT EXISTS qr_rotated_at TIMESTAMP;
 
+-- ========== HOURLY-RATE PAYROLL SUPPORT ==========
+
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) NOT NULL DEFAULT 'monthly';
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'GHS';
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10, 2);
+ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5;
+
+-- ========== PREMISES TRACKING (checked in at gate, left without working) ==========
+
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_left_at TIMESTAMP;
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_returned_at TIMESTAMP;
+
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_attendance_staff ON attendance_records(staff_uuid);
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(date);
@@ -261,6 +273,132 @@ CREATE TABLE IF NOT EXISTS geofence_events (
 
 CREATE INDEX IF NOT EXISTS idx_geofence_staff_date ON geofence_events(staff_uuid, created_at);
 CREATE INDEX IF NOT EXISTS idx_geofence_institution_date ON geofence_events(institution_id, created_at);
+
+-- ========== RESTRICTED APP ROLE (makes RLS binding) ==========
+-- Hosted providers (Neon) give the project owner rolbypassrls=true, which
+-- silently disables every policy for DATABASE_URL connections. The app
+-- masquerades as this NOLOGIN role (SET ROLE on connect) which only holds
+-- plain DML grants, so the isolation policies below are enforced for real.
+
+DO $app_role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'geoattend_app') THEN
+    CREATE ROLE geoattend_app NOLOGIN;
+  END IF;
+END
+$app_role$;
+
+DO $app_role$
+DECLARE
+  connecting_role TEXT := current_user;
+BEGIN
+  IF connecting_role <> 'geoattend_app' THEN
+    EXECUTE format('GRANT geoattend_app TO %I', connecting_role);
+  END IF;
+END
+$app_role$;
+
+GRANT USAGE ON SCHEMA public TO geoattend_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO geoattend_app;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO geoattend_app;
+
+DO $app_priv$
+DECLARE
+  connecting_role TEXT := current_user;
+BEGIN
+  EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO geoattend_app', connecting_role);
+  EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE ON SEQUENCES TO geoattend_app', connecting_role);
+END
+$app_priv$;
+
+-- ========== ROW-LEVEL SECURITY: TENANT ISOLATION ==========
+-- Must stay LAST: once FORCE ROW LEVEL SECURITY is on, the table owner obeys
+-- the policies too; everything above (backfills) needs to run untouched.
+-- NULLIF guards the uuid cast: the system channel clears institution_id to ''.
+
+ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE institutions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON institutions;
+CREATE POLICY tenant_isolation_policy ON institutions
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON staff;
+CREATE POLICY tenant_isolation_policy ON staff
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_records FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON attendance_records;
+CREATE POLICY tenant_isolation_policy ON attendance_records
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE attendance_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_rules FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON attendance_rules;
+CREATE POLICY tenant_isolation_policy ON attendance_rules
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE overtime_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE overtime_records FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON overtime_records;
+CREATE POLICY tenant_isolation_policy ON overtime_records
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE geofence_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE geofence_events FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON geofence_events;
+CREATE POLICY tenant_isolation_policy ON geofence_events
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE fraud_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fraud_events FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON fraud_events;
+CREATE POLICY tenant_isolation_policy ON fraud_events
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscriptions FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON subscriptions;
+CREATE POLICY tenant_isolation_policy ON subscriptions
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON audit_logs;
+CREATE POLICY tenant_isolation_policy ON audit_logs
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE leave_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leave_requests FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON leave_requests;
+CREATE POLICY tenant_isolation_policy ON leave_requests
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE institution_admin_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE institution_admin_credentials FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON institution_admin_credentials;
+CREATE POLICY tenant_isolation_policy ON institution_admin_credentials
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE device_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE device_logs FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON device_logs;
+CREATE POLICY tenant_isolation_policy ON device_logs
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND EXISTS (SELECT 1 FROM staff s WHERE s.id = staff_uuid)) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND EXISTS (SELECT 1 FROM staff s WHERE s.id = staff_uuid)) OR current_setting('app.bypass_rls', true) = 'on');
 `;
 
 async function runMigration() {

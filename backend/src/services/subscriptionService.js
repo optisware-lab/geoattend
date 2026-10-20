@@ -6,11 +6,11 @@ function normalizeInstitutionCode(code) {
   return String(code || '').trim().toUpperCase();
 }
 
-async function getInstitutionByCode(institutionCode) {
+async function getInstitutionByCode(institutionCode, db = pool) {
   const normalized = normalizeInstitutionCode(institutionCode);
   if (!normalized) return null;
 
-  const result = await pool.query(
+  const result = await db.query(
     'SELECT id, name, institution_code FROM institutions WHERE institution_code = $1',
     [normalized]
   );
@@ -39,8 +39,8 @@ async function ensureTrialSubscription(institutionId, client = pool) {
   return created.rows[0];
 }
 
-async function getCurrentSubscription(institutionId) {
-  const result = await pool.query(
+async function getCurrentSubscription(institutionId, db = pool) {
+  const result = await db.query(
     `SELECT id, plan_name, status, trial_start, trial_end, current_period_end, payment_reference, created_at, updated_at
      FROM subscriptions
      WHERE institution_id = $1

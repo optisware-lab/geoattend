@@ -45,6 +45,7 @@ export default function QRScanScreen() {
       const institution = JSON.parse(await AsyncStorage.getItem('institution'));
 
       let qrCode = null;
+      let qrToken = null;
       let method = 'qr_code';
 
       if (qrData.type === 'institution_checkin') {
@@ -56,6 +57,7 @@ export default function QRScanScreen() {
           return;
         }
         qrCode = qrData.code;
+        qrToken = qrData.token || null;
         method = 'qr_code';
       } else if (qrData.staffId) {
         // Individual staff ID card QR code
@@ -74,7 +76,19 @@ export default function QRScanScreen() {
       }
 
       let location = null;
-      try { location = await getCurrentLocation(); } catch {}
+      try { location = await getCurrentLocation(); } catch {
+        Alert.alert('Location Required', 'GPS location is required for QR check-in. Please enable location services and try again.');
+        setScanned(false);
+        setLoading(false);
+        return;
+      }
+
+      if (location?.latitude == null || location?.longitude == null) {
+        Alert.alert('Location Required', 'GPS location is required for QR check-in. Please enable location services and try again.');
+        setScanned(false);
+        setLoading(false);
+        return;
+      }
 
       let deviceId = 'unknown';
       try { deviceId = Device.osBuildId || Device.modelId || Device.modelName || 'unknown'; } catch {}
@@ -84,6 +98,7 @@ export default function QRScanScreen() {
         longitude: location?.longitude,
         method,
         qrCode,
+        qrToken: qrToken || undefined,
         deviceId,
       };
 
@@ -142,7 +157,8 @@ export default function QRScanScreen() {
 
       <View style={styles.instructions}>
         <Text style={styles.instructionText}>
-          Point your camera at the QR code posted at the entrance or on your staff ID card
+          Point your camera at the QR code posted at the entrance or on your staff ID card.
+          {'\n'}GPS must be enabled — check-in is rejected outside your institution's geofence.
         </Text>
       </View>
     </SafeAreaView>

@@ -28,7 +28,7 @@ async function getSubscriptionPayloadSafe(institutionId) {
   }
 }
 
-exports.login = async (req, res) => {
+const loginHandler = async (req, res) => {
   try {
     const { staffId, password, institutionCode, deviceId, deviceModel, osVersion } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
@@ -258,7 +258,7 @@ const PHONE_PATTERN = /^\+?[0-9][0-9\s-]{6,18}[0-9]$/;
  * phone number on file; otherwise asks the app to collect the missing details
  * (phone, institution) and call /auth/google/complete.
  */
-exports.googleAuth = async (req, res) => {
+const googleAuthHandler = async (req, res) => {
   try {
     const { idToken, institutionCode, deviceId, deviceModel, osVersion } = req.body;
     if (!idToken) return res.status(400).json({ error: 'Google ID token is required' });
@@ -304,7 +304,7 @@ exports.googleAuth = async (req, res) => {
  * Step 2 of Google sign-in / sign-up: saves the phone number (and name) for a
  * linked account, or creates a new staff account from the Google profile.
  */
-exports.completeGoogleSignup = async (req, res) => {
+const completeGoogleSignupHandler = async (req, res) => {
   try {
     const {
       idToken, institutionCode, phone, firstName, lastName, staffId, department, position,
@@ -410,7 +410,7 @@ exports.completeGoogleSignup = async (req, res) => {
   }
 };
 
-exports.register = async (req, res) => {
+const registerHandler = async (req, res) => {
   try {
     const { staffId, firstName, lastName, email, phone, password, department, position, institutionCode } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
@@ -470,7 +470,7 @@ exports.changePassword = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const result = await pool.query('SELECT password_hash FROM staff WHERE id = $1', [req.user.id]);
+    const result = await req.tenantDb.query('SELECT password_hash FROM staff WHERE id = $1', [req.user.id]);
     if (!result.rows[0]?.password_hash) {
       return res.status(400).json({ error: 'This account signs in with Google and has no password yet. Use Forgot Password to set one.' });
     }
@@ -481,11 +481,11 @@ exports.changePassword = async (req, res) => {
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, req.user.id]);
+    await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, req.user.id]);
 
     // Clear any stored plaintext credential for this institution so the super admin
     // can no longer hand out a stale password; they must reset it from the dashboard.
-    await pool.query(
+    await req.tenantDb.query(
       'DELETE FROM institution_admin_credentials WHERE institution_id = $1',
       [req.user.institution_id]
     ).catch(() => {});
@@ -497,7 +497,7 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-exports.forgotPassword = async (req, res) => {
+const forgotPasswordHandler = async (req, res) => {
   try {
     const { staffId, email, newPassword, institutionCode } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
@@ -515,7 +515,7 @@ exports.forgotPassword = async (req, res) => {
       return res.status(404).json({ error: 'Invalid institution code' });
     }
 
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       "SELECT id FROM staff WHERE staff_id = $1 AND email = $2 AND member_type = 'staff' AND institution_id = $3 AND is_active = true",
       [staffId.toUpperCase(), email.toLowerCase().trim(), institution.id]
     );
@@ -525,7 +525,7 @@ exports.forgotPassword = async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, result.rows[0].id]);
+    await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, result.rows[0].id]);
 
     res.json({ message: 'Password reset successfully. You can now login with your new password.' });
   } catch (err) {
@@ -535,7 +535,7 @@ exports.forgotPassword = async (req, res) => {
 };
 
 // Public helper: find a user's Staff ID using institution code + email.
-exports.forgotStaffId = async (req, res) => {
+const forgotStaffIdHandler = async (req, res) => {
   try {
     const { institutionCode, email } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
@@ -549,7 +549,7 @@ exports.forgotStaffId = async (req, res) => {
       return res.status(404).json({ error: 'Invalid institution code' });
     }
 
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       "SELECT staff_id, first_name, last_name FROM staff WHERE LOWER(email) = $1 AND member_type = 'staff' AND institution_id = $2 AND is_active = true",
       [email.toLowerCase().trim(), institution.id]
     );
@@ -587,7 +587,7 @@ exports.createInitialAdmin = async (req, res) => {
     const institutionId = institution.id;
 
     // Prevent creating a second admin if one already exists for this institution
-    const existingAdmin = await pool.query(
+    const existingAdmin = await req.tenantDb.query(
       "SELECT id FROM staff WHERE institution_id = $1 AND role IN ('admin','super_admin')",
       [institutionId]
     );
@@ -598,7 +598,7 @@ exports.createInitialAdmin = async (req, res) => {
     const finalStaffId = staffId ? staffId.toUpperCase() : ('ADMIN' + crypto.randomBytes(3).toString('hex').toUpperCase());
 
     // Ensure unique staff id within institution
-    const collide = await pool.query('SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2', [finalStaffId, institutionId]);
+    const collide = await req.tenantDb.query('SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2', [finalStaffId, institutionId]);
     if (collide.rows.length > 0) {
       return res.status(409).json({ error: 'Generated Staff ID already exists — try again' });
     }
@@ -607,22 +607,23 @@ exports.createInitialAdmin = async (req, res) => {
     const passwordHash = await bcrypt.hash(rawPassword, 12);
     const qrData = `STAFF-${institutionId}-${finalStaffId}`;
 
-    const insertResult = await pool.query(
+    const insertResult = await req.tenantDb.query(
       `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, password_hash, qr_code_data, role, member_type)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'admin', 'staff')
        RETURNING id, staff_id, first_name, last_name, email`,
       [institutionId, finalStaffId, firstName || 'Admin', lastName || 'User', email || null, phone || null, passwordHash, qrData]
     );
 
-    // Store the plaintext credentials so the super admin can retrieve them later.
-    await pool.query(
+    // Store the credentials AES-encrypted at rest so the super admin can
+    // decrypt them later; the plaintext is only present in this response.
+    await req.tenantDb.query(
       `INSERT INTO institution_admin_credentials (institution_id, admin_staff_id, admin_password)
        VALUES ($1, $2, $3)
        ON CONFLICT (institution_id) DO UPDATE SET
          admin_staff_id = EXCLUDED.admin_staff_id,
          admin_password = EXCLUDED.admin_password,
          updated_at = NOW()`,
-      [institutionId, finalStaffId, rawPassword]
+      [institutionId, finalStaffId, require('../utils/credentialsCrypto').encrypt(rawPassword)]
     ).catch(err => console.error('Create initial admin: store credentials error:', err.message));
 
     // Return the plaintext password once so the super-admin can relay it securely.
@@ -662,7 +663,7 @@ exports.savePushToken = async (req, res) => {
     const { pushToken } = req.body;
     if (!pushToken) return res.status(400).json({ error: 'Push token is required' });
 
-    await pool.query(
+    await req.tenantDb.query(
       `UPDATE staff SET push_token = $1, updated_at = NOW() WHERE id = $2`,
       [pushToken, req.user.id]
     );
@@ -675,7 +676,7 @@ exports.savePushToken = async (req, res) => {
 
 exports.getProfile = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
               s.department, s.position, s.role, s.profile_photo_url, s.qr_code_data,
               i.name as institution_name, i.latitude, i.longitude, i.geofence_radius
@@ -691,3 +692,17 @@ exports.getProfile = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+
+// Public sign-in flows run before a user identity exists, so Postgres RLS has
+// no institution context yet - they execute with the system bypass and the
+// handlers themselves verify the institution link before issuing a JWT.
+const withSystem = (handler) => (req, res) =>
+  pool.withSystemContext(() => handler(req, res));
+
+exports.login = withSystem(loginHandler);
+exports.googleAuth = withSystem(googleAuthHandler);
+exports.completeGoogleSignup = withSystem(completeGoogleSignupHandler);
+exports.register = withSystem(registerHandler);
+exports.forgotPassword = withSystem(forgotPasswordHandler);
+exports.forgotStaffId = withSystem(forgotStaffIdHandler);

@@ -4,7 +4,13 @@
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 
-async function reset() {
+// Connection failures (e.g. ECONNREFUSED to localhost) can arrive as an AggregateError with an empty message
+function describeError(e) {
+  const inner = Array.isArray(e.errors) ? e.errors.map(describeError).join('; ') : '';
+  return [e.code, e.message, inner].filter(Boolean).join(' — ') || String(e);
+}
+
+async function reset(client) {
   const [newPassword, staffIdArg] = process.argv.slice(2);
   const staffId = (staffIdArg || 'ADMIN001').toUpperCase();
 
@@ -20,7 +26,7 @@ async function reset() {
   // Neon's free tier sleeps when idle; the first connection can take longer than the pool's 5s timeout
   for (let attempt = 1; ; attempt++) {
     try {
-      await pool.query('SELECT 1');
+      await client.query('SELECT 1');
       break;
     } catch (e) {
       if (attempt >= 4) throw e;
@@ -29,7 +35,8 @@ async function reset() {
     }
   }
 
-  const found = await pool.query(
+  // Ops script with no user context — runs with the RLS system bypass.
+  const found = await client.query(
     `SELECT s.id, s.staff_id, s.role, s.is_active, i.name AS institution_name
      FROM staff s JOIN institutions i ON i.id = s.institution_id
      WHERE s.staff_id = $1 AND s.role IN ('admin', 'super_admin')`,
@@ -42,7 +49,7 @@ async function reset() {
   console.table(found.rows.map(({ id, ...row }) => row));
 
   const hash = await bcrypt.hash(newPassword, 12);
-  const updated = await pool.query(
+  const updated = await client.query(
     `UPDATE staff SET password_hash = $1, is_active = true, updated_at = NOW()
      WHERE staff_id = $2 AND role IN ('admin', 'super_admin')`,
     [hash, staffId]
@@ -52,10 +59,4 @@ async function reset() {
   process.exit(0);
 }
 
-// Connection failures (e.g. ECONNREFUSED to localhost) can arrive as an AggregateError with an empty message
-function describeError(e) {
-  const inner = Array.isArray(e.errors) ? e.errors.map(describeError).join('; ') : '';
-  return [e.code, e.message, inner].filter(Boolean).join(' — ') || String(e);
-}
-
-reset().catch((e) => { console.error('Reset failed:', describeError(e)); process.exit(1); });
+pool.withSystemContext(reset).catch((e) => { console.error('Reset failed:', describeError(e)); process.exit(1); });

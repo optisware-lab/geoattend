@@ -1,5 +1,4 @@
 const bcrypt = require('bcryptjs');
-const pool = require('../config/database');
 const { v4: uuidv4 } = require('uuid');
 const { generateQRCode } = require('../utils/qrcode');
 
@@ -12,6 +11,7 @@ exports.getAllStaff = async (req, res) => {
     let query = `
       SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
              s.department, s.position, s.role, s.is_active, s.profile_photo_url, s.created_at,
+             s.hourly_rate,
              (s.google_id IS NOT NULL) AS google_linked
       FROM staff s WHERE s.institution_id = $1 AND s.member_type = 'staff'`;
     const params = [institutionId];
@@ -34,12 +34,12 @@ exports.getAllStaff = async (req, res) => {
     }
 
     const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
-    const countResult = await pool.query(countQuery, params);
+    const countResult = await req.tenantDb.query(countQuery, params);
 
     query += ` ORDER BY s.last_name, s.first_name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    const result = await pool.query(query, params);
+    const result = await req.tenantDb.query(query, params);
 
     res.json({
       staff: result.rows,
@@ -55,10 +55,10 @@ exports.getAllStaff = async (req, res) => {
 
 exports.getStaffById = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
               s.department, s.position, s.role, s.is_active, s.profile_photo_url,
-              s.qr_code_data, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
+              s.qr_code_data, s.hourly_rate, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
        FROM staff s WHERE s.id = $1 AND s.institution_id = $2`,
       [req.params.id, req.user.institution_id]
     );
@@ -76,7 +76,7 @@ exports.getStaffById = async (req, res) => {
 
 exports.createStaff = async (req, res) => {
   try {
-    const { staffId, firstName, lastName, email, phone, department, position, role, password } = req.body;
+    const { staffId, firstName, lastName, email, phone, department, position, role, password, hourlyRate } = req.body;
     const institutionId = req.user.institution_id;
 
     if (!staffId || !firstName || !lastName || !password) {
@@ -84,7 +84,7 @@ exports.createStaff = async (req, res) => {
     }
 
     // Check if staff ID already exists
-    const existing = await pool.query(
+    const existing = await req.tenantDb.query(
       'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
       [staffId.toUpperCase(), institutionId]
     );
@@ -97,12 +97,12 @@ exports.createStaff = async (req, res) => {
     const id = uuidv4();
     const qrCodeData = `STAFF-${institutionId}-${staffId.toUpperCase()}`;
 
-    const result = await pool.query(
-      `INSERT INTO staff (id, institution_id, staff_id, first_name, last_name, email, phone, department, position, role, password_hash, qr_code_data, member_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'staff')
-       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, qr_code_data, created_at`,
+    const result = await req.tenantDb.query(
+      `INSERT INTO staff (id, institution_id, staff_id, first_name, last_name, email, phone, department, position, role, password_hash, qr_code_data, member_type, hourly_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'staff', $13)
+       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, qr_code_data, hourly_rate, created_at`,
       [id, institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null,
-       department || null, position || null, role || 'staff', passwordHash, qrCodeData]
+       department || null, position || null, role || 'staff', passwordHash, qrCodeData, hourlyRate || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -114,11 +114,11 @@ exports.createStaff = async (req, res) => {
 
 exports.updateStaff = async (req, res) => {
   try {
-    const { firstName, lastName, email, phone, department, position, role, isActive } = req.body;
+    const { firstName, lastName, email, phone, department, position, role, isActive, hourlyRate } = req.body;
     const { id } = req.params;
     const institutionId = req.user.institution_id;
 
-    const existing = await pool.query(
+    const existing = await req.tenantDb.query(
       'SELECT id FROM staff WHERE id = $1 AND institution_id = $2',
       [id, institutionId]
     );
@@ -127,7 +127,9 @@ exports.updateStaff = async (req, res) => {
       return res.status(404).json({ error: 'Staff member not found' });
     }
 
-    const result = await pool.query(
+    const hourlyRateValue = hourlyRate === '' || hourlyRate === null ? null : (hourlyRate !== undefined ? hourlyRate : undefined);
+
+    const result = await req.tenantDb.query(
       `UPDATE staff SET
         first_name = COALESCE($1, first_name),
         last_name = COALESCE($2, last_name),
@@ -137,10 +139,11 @@ exports.updateStaff = async (req, res) => {
         position = COALESCE($6, position),
         role = COALESCE($7, role),
         is_active = COALESCE($8, is_active),
+        hourly_rate = CASE WHEN $10 THEN $9::numeric ELSE hourly_rate END,
         updated_at = NOW()
-       WHERE id = $9
-       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, updated_at`,
-      [firstName, lastName, email, phone, department, position, role, isActive, id]
+       WHERE id = $11
+       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, updated_at`,
+      [firstName, lastName, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id]
     );
 
     res.json(result.rows[0]);
@@ -160,7 +163,7 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const existing = await pool.query(
+    const existing = await req.tenantDb.query(
       'SELECT id FROM staff WHERE id = $1 AND institution_id = $2',
       [id, institutionId]
     );
@@ -170,7 +173,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
-    await pool.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, id]);
+    await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, id]);
 
     res.json({ message: 'Password reset successfully' });
   } catch (err) {
@@ -181,7 +184,7 @@ exports.resetPassword = async (req, res) => {
 
 exports.getStaffQRCode = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       'SELECT id, staff_id, institution_id, qr_code_data FROM staff WHERE id = $1 AND institution_id = $2',
       [req.params.id, req.user.institution_id]
     );
@@ -200,7 +203,7 @@ exports.getStaffQRCode = async (req, res) => {
 
 exports.getDepartments = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await req.tenantDb.query(
       "SELECT DISTINCT department FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND department IS NOT NULL ORDER BY department",
       [req.user.institution_id]
     );
@@ -237,7 +240,7 @@ exports.bulkImport = async (req, res) => {
         const passwordHash = await require('bcryptjs').hash(s.password || 'Pass@123', 12);
         const qrData = require('uuid').v4();
 
-        await pool.query(
+        await req.tenantDb.query(
           `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, member_type)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff')
            ON CONFLICT (institution_id, staff_id) DO NOTHING`,
@@ -263,7 +266,7 @@ exports.deleteStaff = async (req, res) => {
     const institutionId = req.user.institution_id;
 
     // Verify staff belongs to the same institution
-    const staff = await pool.query(
+    const staff = await req.tenantDb.query(
       'SELECT id, staff_id, first_name, last_name FROM staff WHERE id = $1 AND institution_id = $2',
       [id, institutionId]
     );
@@ -278,7 +281,7 @@ exports.deleteStaff = async (req, res) => {
     }
 
     // Delete staff (attendance_records and device_logs cascade automatically)
-    await pool.query('DELETE FROM staff WHERE id = $1', [id]);
+    await req.tenantDb.query('DELETE FROM staff WHERE id = $1', [id]);
 
     res.json({ message: `Staff member ${staff.rows[0].first_name} ${staff.rows[0].last_name} deleted successfully` });
   } catch (err) {

@@ -1,9 +1,8 @@
-const pool = require('../config/database');
 const { isWithinGeofence } = require('../utils/geofence');
 const { sendSMS } = require('../services/smsService');
 
-async function getAdminsWithContacts(institutionId) {
-  const admins = await pool.query(
+async function getAdminsWithContacts(db, institutionId) {
+  const admins = await db.query(
     `SELECT first_name, last_name, staff_id, phone, email, push_token
      FROM staff
      WHERE institution_id = $1
@@ -15,6 +14,7 @@ async function getAdminsWithContacts(institutionId) {
 }
 
 exports.recordEvent = async (req, res) => {
+  const db = req.tenantDb;
   try {
     const { latitude, longitude, source } = req.body || {};
     const staffUuid = req.user.id;
@@ -24,7 +24,7 @@ exports.recordEvent = async (req, res) => {
       return res.status(400).json({ error: 'Latitude and longitude are required' });
     }
 
-    const instResult = await pool.query(
+    const instResult = await db.query(
       'SELECT latitude, longitude, geofence_radius, name FROM institutions WHERE id = $1',
       [institutionId]
     );
@@ -45,7 +45,7 @@ exports.recordEvent = async (req, res) => {
     const currentState = geofenceCheck.isWithin ? 'inside' : 'outside';
 
     // Get last event for this staff to determine state change
-    const lastEventResult = await pool.query(
+    const lastEventResult = await db.query(
       `SELECT event, created_at
        FROM geofence_events
        WHERE staff_uuid = $1
@@ -62,7 +62,7 @@ exports.recordEvent = async (req, res) => {
     const isStateChange = previousState !== currentState;
 
     // Always record the event so reporting has full history
-    const insertResult = await pool.query(
+    const insertResult = await db.query(
       `INSERT INTO geofence_events (
          institution_id, staff_uuid, event,
          latitude, longitude, distance_m, radius_m
@@ -80,12 +80,50 @@ exports.recordEvent = async (req, res) => {
       ]
     );
 
+    // ── Premises tracking ────────────────────────────────────────────────────
+    // While a staff member is checked in, leaving the geofence marks their
+    // attendance record. A record that shows "left and never returned" is the
+    // sign of someone checked in at the entrance but not working on site.
+    let attendanceFlagged = false;
+    if (isStateChange) {
+      const activeRecord = await db.query(
+        `SELECT id FROM attendance_records
+         WHERE staff_uuid = $1 AND date = CURRENT_DATE AND check_out_time IS NULL
+         ORDER BY check_in_time DESC LIMIT 1`,
+        [staffUuid]
+      );
+
+      if (activeRecord.rows.length > 0) {
+        if (currentState === 'outside') {
+          await db.query(
+            `UPDATE attendance_records
+             SET premises_left_at = NOW()
+             WHERE id = $1 AND premises_left_at IS NULL`,
+            [activeRecord.rows[0].id]
+          );
+          await db.query(
+            `INSERT INTO fraud_events (institution_id, staff_uuid, event_type, details)
+             VALUES ($1, $2, 'left_during_active_checkin', $3::jsonb)`,
+            [institutionId, staffUuid, JSON.stringify({ source: source || 'unknown', at: new Date().toISOString() })]
+          ).catch(() => {});
+          attendanceFlagged = true;
+        } else {
+          await db.query(
+            `UPDATE attendance_records
+             SET premises_returned_at = NOW()
+             WHERE id = $1 AND premises_left_at IS NOT NULL AND premises_returned_at IS NULL`,
+            [activeRecord.rows[0].id]
+          );
+        }
+      }
+    }
+
     let alerted = false;
 
     // Anti-spam: only alert on inside -> outside transitions, with cooldown
     if (isStateChange && currentState === 'outside') {
       const cooldownMinutes = parseInt(process.env.GEOFENCE_ALERT_COOLDOWN_MINUTES || '15', 10);
-      const recentExit = await pool.query(
+      const recentExit = await db.query(
         `SELECT created_at
          FROM geofence_events
          WHERE staff_uuid = $1 AND event = 'exit'
@@ -104,7 +142,7 @@ exports.recordEvent = async (req, res) => {
       }
 
       if (allowAlert) {
-        const staffResult = await pool.query(
+        const staffResult = await db.query(
           `SELECT staff_id, first_name, last_name
            FROM staff
            WHERE id = $1`,
@@ -114,7 +152,7 @@ exports.recordEvent = async (req, res) => {
         const name = `${staff?.first_name || ''} ${staff?.last_name || ''}`.trim() || staff?.staff_id || 'Staff member';
         const idLabel = staff?.staff_id || '';
 
-        const admins = await getAdminsWithContacts(institutionId);
+        const admins = await getAdminsWithContacts(db, institutionId);
         const message = `ALERT: ${name} (Staff ID ${idLabel}) left ${inst.name} geofence at ${new Date().toLocaleTimeString()}. Distance ${geofenceCheck.distance}m (radius ${geofenceCheck.radius}m).`;
 
         // SMS to admins where phone is available
@@ -141,6 +179,7 @@ exports.recordEvent = async (req, res) => {
       distance: geofenceCheck.distance,
       radius: geofenceCheck.radius,
       alerted,
+      attendanceFlagged,
       source: source || 'unknown',
     });
   } catch (err) {
@@ -148,4 +187,3 @@ exports.recordEvent = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
-

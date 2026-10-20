@@ -2,10 +2,12 @@ const pool = require('../config/database');
 
 async function logAudit({ institutionId, action, entityType, entityId, details, performedBy, ipAddress }) {
   try {
-    await pool.query(
-      `INSERT INTO audit_logs (institution_id, action, entity_type, entity_id, details, performed_by, ip_address)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [institutionId, action, entityType, entityId || null, details ? JSON.stringify(details) : null, performedBy, ipAddress || null]
+    await pool.withSystemContext((client) =>
+      client.query(
+        `INSERT INTO audit_logs (institution_id, action, entity_type, entity_id, details, performed_by, ip_address)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [institutionId, action, entityType, entityId || null, details ? JSON.stringify(details) : null, performedBy, ipAddress || null]
+      )
     );
   } catch (err) {
     console.error('Audit log error:', err.message);

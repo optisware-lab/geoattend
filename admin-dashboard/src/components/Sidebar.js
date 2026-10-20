@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield } from 'react-icons/fi';
+import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield, FiDollarSign } from 'react-icons/fi';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: FiHome },
@@ -128,6 +128,12 @@ export default function Sidebar({ user, onLogout }) {
     // insert near Leave
     const insertIndex = finalNavItems.findIndex(i => i.path === '/leave');
     const item = { path: '/request-leave', label: 'Request Leave', icon: FiCalendar };
+    if (insertIndex >= 0) finalNavItems.splice(insertIndex + 1, 0, item);
+    else finalNavItems.push(item);
+  } else if (user && user.role && (user.role.toLowerCase() === 'admin' || user.role.toLowerCase() === 'super_admin')) {
+    // Payroll review for admin/super_admin
+    const insertIndex = finalNavItems.findIndex(i => i.path === '/analytics');
+    const item = { path: '/payroll', label: 'Payroll', icon: FiDollarSign };
     if (insertIndex >= 0) finalNavItems.splice(insertIndex + 1, 0, item);
     else finalNavItems.push(item);
   }

@@ -40,16 +40,22 @@ async function generateQRCodeBuffer(staffData) {
 /**
  * Generate a single institution-wide check-in QR code.
  * Staff scan this at the entrance to check in.
+ * When the institution has a rotation token it is embedded so the server can
+ * verify the scan is on the CURRENT poster (old prints/photos become invalid).
  */
 async function generateInstitutionQR(institution) {
-  const qrData = JSON.stringify({
+  const payload = {
     type: 'institution_checkin',
     institutionId: institution.id,
     name: institution.name,
     code: `INST-${institution.id}`,
-  });
+  };
+  if (institution.qr_rotation_token) {
+    payload.token = institution.qr_rotation_token;
+    payload.rotatedAt = institution.qr_rotated_at || null;
+  }
 
-  const qrDataUrl = await QRCode.toDataURL(qrData, {
+  const qrDataUrl = await QRCode.toDataURL(JSON.stringify(payload), {
     width: 400,
     margin: 2,
     color: { dark: '#1a5276', light: '#ffffff' },

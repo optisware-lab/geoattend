@@ -3,8 +3,9 @@ const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
-async function seed() {
-  const client = await pool.connect();
+// Row-Level Security: seed scripts run before any tenant identity exists, so
+// they execute on a connection with the system bypass.
+pool.withSystemContext(async (client) => {
   try {
     console.log('Seeding database...');
 
@@ -77,10 +78,5 @@ async function seed() {
   } catch (err) {
     console.error('Seed failed:', err.message);
     process.exit(1);
-  } finally {
-    client.release();
-    await pool.end();
   }
-}
-
-seed();
+});

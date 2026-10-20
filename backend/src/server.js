@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -13,6 +13,7 @@ const reportRoutes = require('./routes/reports');
 const leaveRoutes = require('./routes/leave');
 const analyticsRoutes = require('./routes/analytics');
 const geofenceRoutes = require('./routes/geofence');
+const payrollRoutes = require('./routes/payroll');
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/leave', leaveRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/geofence', geofenceRoutes);
+app.use('/api/payroll', payrollRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -94,7 +96,7 @@ app.use((err, req, res, _next) => {
 
 // Auto-migrate: ensure column sizes are correct on startup
 const pool = require('./config/database');
-async function runAutoMigration() {
+async function runAutoMigration(client) {
   const alters = [
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS push_token TEXT',
     'ALTER TABLE staff ALTER COLUMN profile_photo_url TYPE TEXT',
@@ -107,7 +109,7 @@ async function runAutoMigration() {
   ];
   for (const sql of alters) {
     try {
-      await pool.query(sql);
+      await client.query(sql);
     } catch (err) {
       console.error('Auto-migration skip:', sql.slice(0, 60), '-', err.message);
     }
@@ -199,12 +201,140 @@ async function runAutoMigration() {
     )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS ux_institution_admin_credentials_institution
       ON institution_admin_credentials(institution_id)`,
+
+    // â”€â”€ Hourly-rate payroll support â”€â”€
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) NOT NULL DEFAULT 'monthly'`,
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'GHS'`,
+    `ALTER TABLE staff ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10, 2)`,
+    `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
+
+    // â”€â”€ Premises tracking (checked in at gate, left without working) â”€â”€
+    `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_left_at TIMESTAMP`,
+    `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_returned_at TIMESTAMP`,
   ];
   for (const sql of newTables) {
-    try { await pool.query(sql); } catch (err) {
+    try { await client.query(sql); } catch (err) {
       if (!err.message.includes('already exists')) console.error('Auto-migration skip:', err.message);
     }
   }
+
+  // â”€â”€ Restricted app role: makes RLS actually binding â”€â”€
+  // Hosted providers (Neon) hand the project owner rolbypassrls=true, which
+  // silently disables every policy for connections made with DATABASE_URL.
+  // The app therefore masquerades as this NOLOGIN role (SET ROLE on connect,
+  // see config/database.js) which only holds plain DML grants, so the policies
+  // below are enforced for real. DDL ownership stays with the connecting role.
+  const appRoleSql = [
+    `DO $app_role$
+       BEGIN
+         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'geoattend_app') THEN
+           CREATE ROLE geoattend_app NOLOGIN;
+         END IF;
+       END
+     $app_role$`,
+    // The connecting owner must be a member so it is allowed to SET ROLE.
+    `DO $app_role$
+       DECLARE
+         connecting_role TEXT := current_user;
+       BEGIN
+         IF connecting_role <> 'geoattend_app' THEN
+           EXECUTE format('GRANT geoattend_app TO %I', connecting_role);
+         END IF;
+       END
+     $app_role$`,
+    'GRANT USAGE ON SCHEMA public TO geoattend_app',
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO geoattend_app',
+    'GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO geoattend_app',
+    // Future tables created by the owner are auto-granted to the app role.
+    `DO $app_priv$
+       DECLARE
+         connecting_role TEXT := current_user;
+       BEGIN
+         EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO geoattend_app', connecting_role);
+         EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE ON SEQUENCES TO geoattend_app', connecting_role);
+       END
+     $app_priv$`,
+  ];
+  for (const sql of appRoleSql) {
+    try { await client.query(sql); } catch (err) {
+      console.error('App role setup skip:', err.message.replace(/\n/g, ' ').slice(0, 160));
+    }
+  }
+
+  // â”€â”€ Row-Level Security: engine-enforced tenant isolation â”€â”€
+  // Every tenant table is locked to current_setting('app.institution_id') rows
+  // unless app.bypass_rls = 'on' (super admin / system jobs). FORCE makes the
+  // table owner obey the policies too, so an unfiltered query can never leak
+  // another institution's data â€” Postgres blocks it before it reaches the app.
+  // NULLIF guards the uuid cast: the system channel clears institution_id to ''.
+  const rlsTables = {
+    // tables that carry the institution_id column directly
+    standard: [
+      'staff', 'attendance_records', 'attendance_rules',
+      'overtime_records', 'geofence_events', 'fraud_events', 'subscriptions',
+      'audit_logs', 'leave_requests', 'institution_admin_credentials',
+    ],
+    special: {
+      // institutions IS the tenant row: its id is the institution id
+      institutions: `
+        USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+        WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')`,
+      // device_logs has no institution_id column â€” route through staff
+      device_logs: `
+        USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND EXISTS (SELECT 1 FROM staff s WHERE s.id = staff_uuid)) OR current_setting('app.bypass_rls', true) = 'on')
+        WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND EXISTS (SELECT 1 FROM staff s WHERE s.id = staff_uuid)) OR current_setting('app.bypass_rls', true) = 'on')`,
+    },
+  };
+
+  const standardPolicy = `
+    USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+    WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')`;
+
+  for (const table of rlsTables.standard) {
+    try {
+      await client.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+      await client.query(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
+      await client.query(`DROP POLICY IF EXISTS tenant_isolation_policy ON ${table}`);
+      await client.query(`CREATE POLICY tenant_isolation_policy ON ${table} ${standardPolicy}`);
+    } catch (err) {
+      console.error('RLS policy skip:', table, '-', err.message);
+    }
+  }
+  for (const [table, policy] of Object.entries(rlsTables.special)) {
+    try {
+      await client.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+      await client.query(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
+      await client.query(`DROP POLICY IF EXISTS tenant_isolation_policy ON ${table}`);
+      await client.query(`CREATE POLICY tenant_isolation_policy ON ${table} ${policy}`);
+    } catch (err) {
+      console.error('RLS policy skip:', table, '-', err.message);
+    }
+  }
+  console.log('Auto-migration: RLS tenant isolation policies applied.');
+
+  // â”€â”€ Encrypt legacy plaintext admin credentials at rest â”€â”€
+  try {
+    const { encrypt, isEncrypted } = require('./utils/credentialsCrypto');
+    await pool.withSystemContext(async (client) => {
+      const rows = await client.query(
+        'SELECT id, admin_password FROM institution_admin_credentials WHERE admin_password IS NOT NULL'
+      );
+      let migrated = 0;
+      for (const row of rows.rows) {
+        if (!isEncrypted(row.admin_password)) {
+          await client.query(
+            'UPDATE institution_admin_credentials SET admin_password = $1 WHERE id = $2',
+            [encrypt(row.admin_password), row.id]
+          );
+          migrated++;
+        }
+      }
+      if (migrated > 0) console.log(`Auto-migration: encrypted ${migrated} stored admin password(s)`);
+    });
+  } catch (err) {
+    console.error('Credential encryption backfill skip:', err.message);
+  }
+
   console.log('Auto-migration: column sizes verified.');
 }
 
@@ -251,8 +381,11 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  await runAutoMigration();
-  await ensureAdminExists();
+
+  // Startup DDL runs on the owner channel (the restricted RLS app role must
+  // not own tables); it happens before any tenant identity exists.
+  await pool.withOwnerContext((client) => runAutoMigration(client));
+  await pool.withSystemContext(() => ensureAdminExists());
 
   // Start scheduled jobs
   const { startScheduler } = require('./services/scheduler');
