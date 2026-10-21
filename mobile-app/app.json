@@ -2,7 +2,7 @@
   "expo": {
     "name": "GeoAttend",
     "slug": "geoattend",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "scheme": "com.optisware.geoattend",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,7 +15,7 @@
         "backgroundColor": "#1a5276"
       },
       "package": "com.optisware.geoattend",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": [
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
@@ -61,6 +61,9 @@
         "NSFaceIDUsageDescription": "GeoAttend uses Face ID to securely log you in."
       }
     },
-    "owner": "optisware"
+    "owner": "optisware",
+    "updates": {
+      "url": "https://u.expo.dev/3dc58c73-1dc1-44ce-b834-810c88f20090"
+    }
   }
 }
