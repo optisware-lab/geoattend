@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { generateInstitutionQR } = require('../utils/qrcode');
 const { logAudit } = require('../middleware/audit');
-const { encrypt, decrypt, isEncrypted } = require('../utils/credentialsCrypto');
+const { encrypt, decrypt, decryptSafe, isEncrypted } = require('../utils/credentialsCrypto');
 const {
   DEFAULT_TRIAL_DAYS,
   ensureTrialSubscription,
@@ -155,7 +155,7 @@ async function getCreatedInstitution(id, db) {
     [id]
   );
   const adminCredentials = creds.rows[0]
-    ? { staffId: creds.rows[0].admin_staff_id, password: decrypt(creds.rows[0].admin_password) }
+    ? { staffId: creds.rows[0].admin_staff_id, password: decryptSafe(creds.rows[0].admin_password) }
     : undefined;
   return { ...inst.rows[0], adminCredentials, alreadyCreated: true };
 }
@@ -598,11 +598,17 @@ exports.getAdminCredentials = async (req, res) => {
       ipAddress: req.ip,
     });
 
+    const storedPassword = decryptSafe(creds.rows[0].admin_password);
+
     res.json({
       institution: inst.rows[0],
       credentials: {
         staffId: creds.rows[0].admin_staff_id,
-        password: decrypt(creds.rows[0].admin_password),
+        password: storedPassword,
+        passwordUnavailable: storedPassword === null,
+        passwordUnavailableHint: storedPassword === null
+          ? 'This password was stored under a previous server key. Generate new credentials to replace it.'
+          : null,
       },
       updatedAt: creds.rows[0].updated_at,
     });
@@ -634,14 +640,18 @@ exports.getAllAdminCredentials = async (req, res) => {
       ipAddress: req.ip,
     });
 
-    res.json(rows.rows.map((row) => ({
-      institutionId: row.institution_id,
-      name: row.institution_name,
-      code: row.institution_code,
-      adminStaffId: row.admin_staff_id || null,
-      adminPassword: row.admin_password ? decrypt(row.admin_password) : null,
-      updatedAt: row.updated_at || null,
-    })));
+    res.json(rows.rows.map((row) => {
+      const password = row.admin_password ? decryptSafe(row.admin_password) : null;
+      return {
+        institutionId: row.institution_id,
+        name: row.institution_name,
+        code: row.institution_code,
+        adminStaffId: row.admin_staff_id || null,
+        adminPassword: password,
+        passwordUnavailable: Boolean(row.admin_password) && password === null,
+        updatedAt: row.updated_at || null,
+      };
+    }));
   } catch (err) {
     console.error('Get all admin credentials error:', err);
     res.status(500).json({ error: 'Server error' });

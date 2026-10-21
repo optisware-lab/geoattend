@@ -116,8 +116,18 @@ export default function Institutions() {
       const { data } = await getInstitutionAdminCredentials(id);
       setCreds(prev => ({
         ...prev,
-        [id]: { loaded: true, staffId: data.credentials.staffId, password: data.credentials.password, revealed: true, loading: false },
+        [id]: {
+          loaded: true,
+          staffId: data.credentials.staffId,
+          password: data.credentials.password,
+          passwordUnavailable: Boolean(data.credentials.passwordUnavailable),
+          revealed: true,
+          loading: false,
+        },
       }));
+      if (data.credentials.passwordUnavailable) {
+        toast.warn('Stored password unreadable with the current server key — use Generate Credentials to replace it');
+      }
     } catch (err) {
       if (err.response?.status === 404) {
         setCreds(prev => ({ ...prev, [id]: { loaded: true, missing: true, loading: false } }));
@@ -212,13 +222,19 @@ export default function Institutions() {
           </div>
           <div style={{ marginTop: '4px' }}>
             <span style={styles.credsLabel}>Password</span>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <span style={styles.credsValue}>{c.revealed ? c.password : '••••••••'}</span>
-              <button style={styles.revealBtn} title={c.revealed ? 'Hide' : 'Show'} onClick={() => toggleReveal(inst.id)}>
-                {c.revealed ? <FiEyeOff size={13} /> : <FiEye size={13} />}
-              </button>
-              <button style={styles.copyBtn} title="Copy Password" onClick={() => copyText(c.password)}><FiCopy size={12} /></button>
-            </div>
+            {c.passwordUnavailable ? (
+              <div style={{ fontSize: '12px', color: '#856404', background: '#fff3cd', borderRadius: '4px', padding: '4px 8px', marginTop: '2px' }}>
+                Cannot be decrypted with this server's key — generate new credentials to replace it
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={styles.credsValue}>{c.revealed ? c.password : '••••••••'}</span>
+                <button style={styles.revealBtn} title={c.revealed ? 'Hide' : 'Show'} onClick={() => toggleReveal(inst.id)}>
+                  {c.revealed ? <FiEyeOff size={13} /> : <FiEye size={13} />}
+                </button>
+                <button style={styles.copyBtn} title="Copy Password" onClick={() => copyText(c.password)}><FiCopy size={12} /></button>
+              </div>
+            )}
           </div>
           <button style={{ ...styles.actionBtn, ...styles.resetBtn }} onClick={() => generateCredentials(inst.id)} disabled={resettingId === inst.id}>
             <FiRefreshCw size={12} /> {resettingId === inst.id ? 'Resetting...' : 'Reset Password'}

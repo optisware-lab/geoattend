@@ -314,22 +314,34 @@ async function runAutoMigration(client) {
 
   // â”€â”€ Encrypt legacy plaintext admin credentials at rest â”€â”€
   try {
-    const { encrypt, isEncrypted } = require('./utils/credentialsCrypto');
+    const { encrypt, isEncrypted, decryptSafe } = require('./utils/credentialsCrypto');
     await pool.withSystemContext(async (client) => {
       const rows = await client.query(
         'SELECT id, admin_password FROM institution_admin_credentials WHERE admin_password IS NOT NULL'
       );
       let migrated = 0;
+      let unreadable = 0;
       for (const row of rows.rows) {
-        if (!isEncrypted(row.admin_password)) {
+        // Key rotation: re-encrypt anything that is plaintext or encrypted
+        // under an older configuration, so every row ends up encrypted with
+        // the CURRENT key (ADMIN_CREDENTIALS_KEY || JWT_SECRET).
+        if (isEncrypted(row.admin_password)) {
+          if (decryptSafe(row.admin_password) === null) {
+            unreadable++;
+            continue;
+          }
+        }
+        const plain = decryptSafe(row.admin_password);
+        if (plain) {
           await client.query(
             'UPDATE institution_admin_credentials SET admin_password = $1 WHERE id = $2',
-            [encrypt(row.admin_password), row.id]
+            [encrypt(plain), row.id]
           );
           migrated++;
         }
       }
-      if (migrated > 0) console.log(`Auto-migration: encrypted ${migrated} stored admin password(s)`);
+      if (migrated > 0) console.log(`Auto-migration: re-encrypted ${migrated} stored admin password(s) under the current key`);
+      if (unreadable > 0) console.warn(`Auto-migration: ${unreadable} stored admin password(s) cannot be decrypted with any known key — regenerate them from the Institutions page`);
     });
   } catch (err) {
     console.error('Credential encryption backfill skip:', err.message);
