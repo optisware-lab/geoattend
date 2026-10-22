@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Download GeoAttend Staff App</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 32px;
+      max-width: 420px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    .logo { font-size: 22px; font-weight: 700; color: #2c3e50; margin-bottom: 4px; }
+    .subtitle { font-size: 13px; color: #7f8c8d; margin-bottom: 24px; }
+    .download-btn {
+      display: block;
+      background: #1a5276;
+      color: #fff;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 15px 20px;
+      border-radius: 10px;
+      margin: 0 auto 10px;
+      width: 100%;
+    }
+    .download-btn:hover { background: #154360; }
+    .download-btn.loading { opacity: 0.6; pointer-events: none; }
+    .meta { font-size: 12px; color: #7f8c8d; margin-bottom: 20px; min-height: 16px; }
+    .fallback { font-size: 13px; margin-top: 6px; }
+    .fallback a { color: #1a5276; font-weight: 600; }
+    .qr-section {
+      margin: 20px auto 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+    .qr-section img { border: 1px solid #e4e6eb; border-radius: 8px; }
+    .qr-label { font-size: 12px; color: #7f8c8d; }
+    .steps {
+      margin-top: 20px;
+      text-align: left;
+      background: #f0f2f5;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 12.5px;
+      color: #2c3e50;
+      line-height: 1.6;
+    }
+    .steps strong { display: block; margin-bottom: 4px; }
+    .footer { margin-top: 18px; font-size: 11px; color: #95a5a6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">GeoAttend</div>
+    <p class="subtitle">Staff Attendance App for Android</p>
+
+    <a id="downloadBtn" class="download-btn loading" href="https://github.com/optisware-lab/geoattend/releases">
+      Download Staff App (APK)
+    </a>
+    <div class="meta" id="meta"></div>
+    <p class="fallback">Having trouble? <a href="https://github.com/optisware-lab/geoattend/releases">View all releases</a></p>
+
+    <div class="qr-section" id="qrSection" hidden>
+      <img id="qrImg" alt="QR code to this download page" width="140" height="140" />
+      <span class="qr-label">Scan with your phone camera to open this page</span>
+    </div>
+
+    <div class="steps">
+      <strong>After installing:</strong>
+      1. Tap the downloaded APK file.<br />
+      2. If Android asks, allow "Install from unknown sources" for your browser.<br />
+      3. Open GeoAttend, log in with the credentials your administrator gave you, then check in from the Staff Check-In or QR Scan tab.
+    </div>
+
+    <p class="footer">Geofenced Staff Attendance Management System</p>
+  </div>
+
+  <script>
+    (function () {
+      var btn = document.getElementById('downloadBtn');
+      var meta = document.getElementById('meta');
+
+      // QR of this exact page URL, so scanning opens it on the phone
+      try {
+        var qrSection = document.getElementById('qrSection');
+        var qrImg = document.getElementById('qrImg');
+        var qrApi = 'https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(window.location.href.split('#')[0]);
+        qrImg.src = qrApi;
+        qrImg.onload = function () { qrSection.hidden = false; };
+        // onerror keeps the QR section hidden (page still works via link)
+      } catch (e) { /* QR is optional */ }
+
+      // Always point to the newest published release asset
+      fetch('https://api.github.com/repos/optisware-lab/geoattend/releases/latest')
+        .then(function (r) { if (!r.ok) throw new Error('api ' + r.status); return r.json(); })
+        .then(function (release) {
+          var apk = (release.assets || []).find(function (a) { return /\.apk$/i.test(a.name); });
+          if (!apk) throw new Error('no apk asset');
+          btn.href = apk.browser_download_url;
+          btn.classList.remove('loading');
+          var sizeMb = (apk.size / (1024 * 1024)).toFixed(1);
+          var date = new Date(release.published_at).toLocaleDateString();
+          meta.textContent = 'Version ' + release.tag_name.replace(/^v/, '') + ' | ' + sizeMb + ' MB | published ' + date;
+        })
+        .catch(function () {
+          btn.classList.remove('loading');
+          meta.textContent = '';
+        });
+    })();
+  </script>
+</body>
+</html>

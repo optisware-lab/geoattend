@@ -176,6 +176,12 @@ export default function Login({ onLogin }) {
           <strong>Don't have admin credentials?</strong> Contact your super administrator to create an admin account for your institution. Regular signup creates staff accounts without admin access.
         </div>
 
+        <div style={{ marginTop: 10, fontSize: 13 }}>
+          <a href="/download.html" style={{ color: '#1a5276', fontWeight: 600, textDecoration: 'none' }}>
+            Staff? Download the GeoAttend mobile app here
+          </a>
+        </div>
+
         <p style={styles.footer}>Geofenced Staff Attendance Management System</p>
       </div>
     </div>
