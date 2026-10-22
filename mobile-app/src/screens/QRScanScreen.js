@@ -3,13 +3,71 @@ import {
   View, Text, StyleSheet, Alert, TouchableOpacity, SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
-import { checkIn } from '../services/api';
+import { checkIn, checkInFromImage } from '../services/api';
 import { getCurrentLocation } from '../services/location';
 import { addToQueue, getQueueLength, isOnline } from '../services/offlineQueue';
 
 export default function QRScanScreen() {
+  const pickFromGallery = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.8,
+        exif: false,
+      });
+      const asset = picked.assets?.[0];
+      if (picked.canceled || !asset?.uri) return;
+
+      const connected = await isOnline();
+      if (!connected) {
+        Alert.alert(
+          'Internet Required',
+          'Reading a QR code from a photo needs internet. Use the live camera scanner instead.'
+        );
+        return;
+      }
+
+      // GPS is enforced the same way as camera check-in
+      let location = null;
+      try { location = await getCurrentLocation(); } catch { location = null; }
+      if (!location?.latitude || !location?.longitude) {
+        Alert.alert('Location Required', 'GPS location is required for QR check-in. Please enable location services and try again.');
+        return;
+      }
+
+      let deviceId = 'unknown';
+      try { deviceId = Device.osBuildId || Device.modelId || Device.modelName || 'unknown'; } catch {}
+
+      const formData = new FormData();
+      formData.append('image', {
+        uri: asset.uri,
+        name: asset.mimeType?.includes('png') ? 'qr.png' : 'qr.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
+      formData.append('latitude', String(location.latitude));
+      formData.append('longitude', String(location.longitude));
+      formData.append('deviceId', deviceId);
+
+      const { data: checkResult } = await checkInFromImage(formData);
+      Alert.alert(
+        'Check-In Successful',
+        checkResult.isLate
+          ? 'Checked in via QR code. You are marked as LATE.'
+          : 'Checked in via QR code successfully!'
+      );
+    } catch (err) {
+      const message = err.response?.data?.error || 'Check-in failed. Please try again.';
+      Alert.alert('QR Code', message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -28,6 +86,9 @@ export default function QRScanScreen() {
           </Text>
           <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
             <Text style={styles.permissionBtnText}>Grant Permission</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery}>
+            <Text style={styles.galleryBtnText}>Pick QR Photo from Gallery</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -156,6 +217,9 @@ export default function QRScanScreen() {
       </View>
 
       <View style={styles.instructions}>
+        <TouchableOpacity style={styles.galleryBtn} onPress={pickFromGallery} disabled={loading}>
+          <Text style={styles.galleryBtnText}>If you have a photo of the QR code, pick it from gallery</Text>
+        </TouchableOpacity>
         <Text style={styles.instructionText}>
           Point your camera at the QR code posted at the entrance or on your staff ID card.
           {'\n'}GPS must be enabled — check-in is rejected outside your institution's geofence.
@@ -196,4 +260,9 @@ const styles = StyleSheet.create({
   permissionText: { fontSize: 14, color: '#7f8c8d', textAlign: 'center', marginBottom: 24 },
   permissionBtn: { backgroundColor: '#1a5276', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 10 },
   permissionBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  galleryBtn: {
+    marginTop: 12, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10,
+    borderWidth: 2, borderColor: '#1a5276', backgroundColor: '#fff', alignSelf: 'center',
+  },
+  galleryBtnText: { color: '#1a5276', fontSize: 14, fontWeight: '600', textAlign: 'center' },
 });
