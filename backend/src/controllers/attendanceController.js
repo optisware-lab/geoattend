@@ -1,4 +1,5 @@
 const { isWithinGeofence } = require('../utils/geofence');
+const { decodeQrFromBuffer } = require('../utils/qrDecoder');
 
 async function logFraudEvent(db, { institutionId, staffUuid, eventType, details, ipAddress }) {
   try {
@@ -61,9 +62,16 @@ async function loadEarningsContext(db, institutionId, staffUuid) {
 }
 
 exports.checkIn = async (req, res) => {
+  await runCheckIn(req, res, req.body || {});
+};
+
+/** Shared check-in core: direct /check-in (scanned QR payload arrives in the JSON
+ *  body) and /check-in-from-image (QR decoded server-side from an uploaded photo)
+ *  both funnel into the exact same validation and record creation. */
+async function runCheckIn(req, res, body) {
   const db = req.tenantDb;
   try {
-    const { latitude, longitude, method, deviceId, qrCode, qrToken } = req.body;
+    const { latitude, longitude, method, deviceId, qrCode, qrToken } = body;
     const staffUuid = req.user.id;
     const institutionId = req.user.institution_id;
 
@@ -233,6 +241,53 @@ exports.checkIn = async (req, res) => {
   } catch (err) {
     console.error('Check-in error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+}
+
+/** Check-in from a photo of the QR code (gallery pick). The image is decoded
+ *  server-side, then validated with the full standard QR check-in pipeline. */
+exports.checkInFromImage = async (req, res) => {
+  if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
+    return res.status(400).json({ error: 'No image uploaded. Attach the QR photo as the "image" field.' });
+  }
+
+  try {
+    const decoded = await decodeQrFromBuffer(req.file.buffer);
+    if (!decoded) {
+      return res.status(400).json({
+        error: 'No QR code found in this image. Make sure the whole QR code is clearly visible in the photo.',
+      });
+    }
+
+    let qrData;
+    try {
+      qrData = JSON.parse(decoded);
+    } catch {
+      return res.status(400).json({ error: 'This image does not contain a GeoAttend QR code.' });
+    }
+
+    let qrCode = null;
+    let qrToken = null;
+    if (qrData.type === 'institution_checkin') {
+      qrCode = qrData.code;
+      qrToken = qrData.token || null;
+    } else if (qrData.staffId) {
+      qrCode = qrData.code;
+    } else {
+      return res.status(400).json({ error: 'This is not a valid GeoAttend QR code.' });
+    }
+
+    await runCheckIn(req, res, {
+      latitude: parseFloat(req.body.latitude),
+      longitude: parseFloat(req.body.longitude),
+      method: 'qr_code',
+      deviceId: req.body.deviceId,
+      qrCode,
+      qrToken,
+    });
+  } catch (err) {
+    console.error('QR image check-in error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Server error' });
   }
 };
 
