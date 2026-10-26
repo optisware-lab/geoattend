@@ -1,4 +1,4 @@
-const CACHE_NAME = 'geoattend-v1';
+const CACHE_NAME = 'geoattend-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -30,6 +30,14 @@ self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
   } catch {
+    return;
+  }
+
+  // Network-first for page loads so a new deploy shows up immediately
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match(event.request).then((r) => r || caches.match('/index.html')))
+    );
     return;
   }
 

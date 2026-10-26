@@ -1,13 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import StaffApp from './staff/StaffApp';
 import './index.css';
 import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    {/* Staff web check-in has its own sign-in and session, separate from the admin dashboard */}
+    {window.location.pathname.startsWith('/staff') ? <StaffApp /> : <App />}
   </React.StrictMode>
 );
 
