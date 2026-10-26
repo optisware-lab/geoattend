@@ -13,9 +13,9 @@ const PERIODS = {
 };
 
 const TIERS = [
-  { id: 'starter', name: 'Starter', maxStaff: 15, prices: { monthly: 99, termly: 350, yearly: 990 } },
-  { id: 'standard', name: 'Standard', maxStaff: 40, prices: { monthly: 199, termly: 700, yearly: 1990 } },
-  { id: 'growth', name: 'Growth', maxStaff: 100, prices: { monthly: 399, termly: 1400, yearly: 3990 } },
+  { id: 'starter', name: 'Starter', maxStaff: 12, prices: { monthly: 100, termly: 350, yearly: 1000 } },
+  { id: 'standard', name: 'Standard', maxStaff: 40, prices: { monthly: 200, termly: 700, yearly: 2000 } },
+  { id: 'growth', name: 'Growth', maxStaff: 100, prices: { monthly: 400, termly: 1400, yearly: 4000 } },
 ];
 
 // Above the largest tier: priced per active staff member
