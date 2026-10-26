@@ -16,6 +16,8 @@ const geofenceRoutes = require('./routes/geofence');
 const payrollRoutes = require('./routes/payroll');
 
 const app = express();
+// Render sits behind a proxy: use the client's real IP (X-Forwarded-For) for rate limiting
+app.set('trust proxy', 1);
 
 // Security middleware
 app.use(helmet({
@@ -28,24 +30,30 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Rate limiting
+// Body parsing (before rate limiting so the login limiter can key by account)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting. A whole school often shares one Wi-Fi IP, so the general
+// limit is generous and login attempts are counted per account, not per IP.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 1000,
   message: { error: 'Too many requests, please try again later' },
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
+  keyGenerator: (req) => {
+    const account = [req.body?.institutionCode, req.body?.staffId]
+      .filter(Boolean).map((v) => String(v).trim().toUpperCase()).join(':');
+    return account ? `${req.ip}|${account}` : req.ip;
+  },
   message: { error: 'Too many login attempts, please try again later' },
 });
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/google', authLimiter);
 app.use('/api/', limiter);
-
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
 
 // Logging
 if (process.env.NODE_ENV !== 'test') {
