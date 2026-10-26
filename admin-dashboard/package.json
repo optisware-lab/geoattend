@@ -20,7 +20,7 @@
   "scripts": {
     "start": "react-scripts start",
     "dev": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "react-scripts build && node scripts/make-staff-html.js"
   },
   "browserslist": {
     "production": [

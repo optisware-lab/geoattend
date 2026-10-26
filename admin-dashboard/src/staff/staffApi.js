@@ -61,6 +61,9 @@ export const forgotPassword = (institutionCode, staffId, email, newPassword) =>
   api.post('/auth/forgot-password', { institutionCode, staffId, email, newPassword });
 export const forgotStaffId = (institutionCode, email) => api.post('/auth/forgot-staff-id', { institutionCode, email });
 export const getTodayStatus = () => api.get('/attendance/today');
+export const getWeeklyStats = () => api.get('/attendance/weekly-stats');
+export const getMyAttendance = (params) => api.get('/attendance/my-attendance', { params });
+export const getProfile = () => api.get('/auth/profile');
 export const checkIn = (data) => api.post('/attendance/check-in', data);
 export const checkOut = (data) => api.post('/attendance/check-out', data);
 export const checkInFromImage = (formData) => api.post('/attendance/check-in-from-image', formData);

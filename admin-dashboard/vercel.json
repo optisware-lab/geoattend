@@ -1,3 +1,17 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "buildCommand": "npm run build",
+  "rewrites": [
+    {
+      "source": "/staff",
+      "destination": "/staff.html"
+    },
+    {
+      "source": "/staff/(.*)",
+      "destination": "/staff.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
