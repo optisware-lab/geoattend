@@ -17,7 +17,8 @@
       "ios": {
         "simulator": true
       },
-      "channel": "preview"
+      "channel": "preview",
+      "autoIncrement": true
     },
     "preview:device": {
       "distribution": "internal",
