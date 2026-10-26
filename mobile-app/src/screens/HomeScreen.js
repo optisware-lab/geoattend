@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentLocation, calculateDistance } from '../services/location';
 import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent } from '../services/api';
-import { addToQueue, syncQueue, getQueueLength, isOnline } from '../services/offlineQueue';
+import { addToQueue, syncQueue, getQueueLength, getPendingStatus, isOnline } from '../services/offlineQueue';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { WebView } from 'react-native-webview';
@@ -33,6 +33,15 @@ export default function HomeScreen() {
   const [online, setOnline] = useState(true);
   const [showMap, setShowMap] = useState(false);
 
+  const reportSync = useCallback((result) => {
+    if (result.synced > 0) {
+      toast.success(`${result.synced} offline record(s) synced successfully.`, 'Synced');
+    }
+    result.rejected?.forEach(({ action, error }) => {
+      toast.error(error, action === 'check-out' ? 'Offline Check-Out Not Accepted' : 'Offline Check-In Not Accepted');
+    });
+  }, [toast]);
+
   const loadData = useCallback(async () => {
     const userData = JSON.parse(await AsyncStorage.getItem('user'));
     const instData = JSON.parse(await AsyncStorage.getItem('institution'));
@@ -50,29 +59,31 @@ export default function HomeScreen() {
       // Location might not be available
     }
 
+    // Sync queued offline check-ins/outs first so today's status is up to date
+    const connected = await isOnline();
+    setOnline(connected);
+    if (connected) {
+      reportSync(await syncQueue());
+    }
+
     try {
       const { data } = await getTodayStatus();
       setTodayStatus(data.status);
       setRecord(data.record);
     } catch {}
 
+    // Anything still queued (offline) decides which button to show
+    const pending = await getPendingStatus();
+    if (pending) setTodayStatus(pending);
+
     try {
       const { data } = await getWeeklyStats();
       setStats(data.month);
     } catch {}
 
-    // Check offline queue
-    const connected = await isOnline();
-    setOnline(connected);
-    if (connected) {
-      const result = await syncQueue();
-      if (result.synced > 0) {
-        toast.success(`${result.synced} offline check-in(s) synced successfully.`, 'Synced');
-      }
-    }
     const qLen = await getQueueLength();
     setPendingSync(qLen);
-  }, []);
+  }, [reportSync]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -83,16 +94,14 @@ export default function HomeScreen() {
       setOnline(connected);
       if (connected) {
         const result = await syncQueue();
-        if (result.synced > 0) {
-          toast.success(`${result.synced} offline check-in(s) synced successfully.`, 'Synced');
-          await loadData();
-        }
+        reportSync(result);
+        if (result.synced > 0 || result.rejected.length > 0) await loadData();
       }
       const qLen = await getQueueLength();
       setPendingSync(qLen);
     });
     return () => unsubscribe();
-  }, [loadData, toast]);
+  }, [loadData, reportSync]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -124,6 +133,7 @@ export default function HomeScreen() {
       if (!connected) {
         await addToQueue('check-in', checkInData);
         setPendingSync(await getQueueLength());
+        setTodayStatus('checked_in');
         toast.warning('Check-in saved. Will sync when back online.', 'Saved Offline');
         setLoading(false);
         return;
@@ -144,6 +154,7 @@ export default function HomeScreen() {
       if (!err.response) {
         await addToQueue('check-in', checkInData);
         setPendingSync(await getQueueLength());
+        setTodayStatus('checked_in');
         toast.warning('Check-in saved. Will sync when back online.', 'Saved Offline');
       } else {
         toast.error(err.response?.data?.error || 'Please try again', 'Check-In Failed');
@@ -155,16 +166,28 @@ export default function HomeScreen() {
 
   const handleCheckOut = async () => {
     setLoading(true);
+    let checkOutData = null;
     try {
       let loc = location;
       try { loc = await getCurrentLocation(); } catch {}
+      if (loc?.latitude == null || loc?.longitude == null) {
+        toast.error('Unable to get your location. Please enable GPS.', 'Location Required');
+        return;
+      }
 
-      await checkOut({
-        latitude: loc?.latitude,
-        longitude: loc?.longitude,
+      checkOutData = {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
         method: 'gps',
         deviceId: Device.osBuildId || Device.modelId || Device.modelName || 'unknown',
-      });
+      };
+
+      if (!(await isOnline())) {
+        await queueCheckOut(checkOutData);
+        return;
+      }
+
+      await checkOut(checkOutData);
 
       setTodayStatus('checked_out');
       toast.success('You have been checked out. See you tomorrow!', 'Check-Out Successful');
@@ -173,10 +196,22 @@ export default function HomeScreen() {
         trigger: null,
       });
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Please try again', 'Check-Out Failed');
+      // No response = network problem: keep the check-out and sync it later
+      if (!err.response && checkOutData) {
+        await queueCheckOut(checkOutData);
+      } else {
+        toast.error(err.response?.data?.error || 'Please try again', 'Check-Out Failed');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const queueCheckOut = async (checkOutData) => {
+    await addToQueue('check-out', checkOutData);
+    setPendingSync(await getQueueLength());
+    setTodayStatus('checked_out');
+    toast.warning('Check-out saved. Will sync when back online.', 'Saved Offline');
   };
 
   // When we detect user is outside geofence while app is open, record a geofence event

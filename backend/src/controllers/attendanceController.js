@@ -13,6 +13,31 @@ async function logFraudEvent(db, { institutionId, staffUuid, eventType, details,
   }
 }
 
+const MAX_OFFLINE_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Check-ins/outs made without internet are queued on the phone and synced
+ * later. They carry when they happened (recordedAt) and the phone's clock at
+ * sync time (sentAt); the difference to server time corrects a wrong phone
+ * clock. Returns { at: Date|null, note: string|null } — at is null for live
+ * requests — or { error } when the entry is too old to accept.
+ */
+function resolveOfflineTime(body) {
+  if (!body.offline || !body.recordedAt) return { at: null, note: null };
+  const recorded = Date.parse(body.recordedAt);
+  if (!Number.isFinite(recorded)) return { at: null, note: null };
+
+  const now = Date.now();
+  const sent = Date.parse(body.sentAt);
+  const clockSkew = Number.isFinite(sent) ? now - sent : 0;
+  const corrected = Math.min(recorded + clockSkew, now);
+  if (now - corrected > MAX_OFFLINE_AGE_MS) {
+    return { error: 'This offline record is more than 24 hours old and was not accepted. Please contact your administrator.' };
+  }
+  const at = new Date(corrected);
+  return { at, note: `Recorded offline at ${at.toISOString()}, synced at ${new Date(now).toISOString()}` };
+}
+
 /** Institution entrance QR payload looks like `INST-<uuid>`; returns the uuid or null. */
 function parseInstitutionQrCode(qrCode) {
   if (typeof qrCode !== 'string' || !qrCode.startsWith('INST-')) return null;
@@ -81,6 +106,10 @@ async function runCheckIn(req, res, body) {
       return res.status(400).json({ error: 'Invalid check-in method' });
     }
 
+    const offline = resolveOfflineTime(body);
+    if (offline.error) return res.status(400).json({ error: offline.error });
+    const eventTime = offline.at || new Date();
+
     // Payments / geofence context
     const { institution: inst, staffRate, rules } = await loadEarningsContext(db, institutionId, staffUuid);
 
@@ -148,7 +177,7 @@ async function runCheckIn(req, res, body) {
     }
 
     // Check for duplicate check-in today
-    const today = new Date().toISOString().split('T')[0];
+    const today = eventTime.toISOString().split('T')[0];
     const existing = await db.query(
       'SELECT id, check_out_time FROM attendance_records WHERE staff_uuid = $1 AND date = $2 ORDER BY check_in_time DESC LIMIT 1',
       [staffUuid, today]
@@ -196,7 +225,7 @@ async function runCheckIn(req, res, body) {
     // Check if late
     let isLate = false;
     if (rules) {
-      const now = new Date();
+      const now = eventTime;
       const [startHour, startMin] = rules.work_start_time.split(':').map(Number);
       const lateTime = new Date(now);
       lateTime.setHours(startHour, startMin + (rules.late_threshold_minutes || 0), 0, 0);
@@ -207,10 +236,11 @@ async function runCheckIn(req, res, body) {
     const record = await db.query(
       `INSERT INTO attendance_records
         (staff_uuid, institution_id, check_in_time, check_in_latitude, check_in_longitude,
-         check_in_method, device_id, is_late, is_within_geofence, date)
-       VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7, $8, $9)
+         check_in_method, device_id, is_late, is_within_geofence, date, notes)
+       VALUES ($1, $2, COALESCE($10::timestamptz, NOW()), $3, $4, $5, $6, $7, $8, $9, $11)
        RETURNING *`,
-      [staffUuid, institutionId, latitude, longitude, method, deviceId || null, isLate, withinGeofence, today]
+      [staffUuid, institutionId, latitude, longitude, method, deviceId || null, isLate, withinGeofence, today,
+       offline.at ? offline.at.toISOString() : null, offline.note]
     );
 
     // Log device
@@ -297,7 +327,11 @@ exports.checkOut = async (req, res) => {
     const { latitude, longitude, method, deviceId } = req.body;
     const staffUuid = req.user.id;
     const institutionId = req.user.institution_id;
-    const today = new Date().toISOString().split('T')[0];
+
+    const offline = resolveOfflineTime(req.body);
+    if (offline.error) return res.status(400).json({ error: offline.error });
+    const eventTime = offline.at || new Date();
+    const today = eventTime.toISOString().split('T')[0];
 
     // Find active check-in
     const active = await db.query(
@@ -355,10 +389,13 @@ exports.checkOut = async (req, res) => {
 
     const record = await db.query(
       `UPDATE attendance_records
-       SET check_out_time = NOW(), check_out_latitude = $1, check_out_longitude = $2, check_out_method = $3
+       SET check_out_time = GREATEST(COALESCE($5::timestamptz, NOW())::timestamp, check_in_time),
+           check_out_latitude = $1, check_out_longitude = $2, check_out_method = $3,
+           notes = CASE WHEN $6::text IS NULL THEN notes ELSE concat_ws(' | ', notes, $6::text) END
        WHERE id = $4
        RETURNING *`,
-      [latitude, longitude, method || 'gps', active.rows[0].id]
+      [latitude, longitude, method || 'gps', active.rows[0].id,
+       offline.at ? offline.at.toISOString() : null, offline.note]
     );
 
     // Track overtime if checking out after work end time
@@ -372,7 +409,7 @@ exports.checkOut = async (req, res) => {
       if (rules.rows.length > 0) {
         overtimeMultiplierDecimal = parseFloat(rules.rows[0].overtime_multiplier);
         workEndTimeForEarnings = rules.rows[0].work_end_time;
-        const now = new Date();
+        const now = eventTime;
         const [endHour, endMin] = rules.rows[0].work_end_time.split(':').map(Number);
         const endTime = new Date(now);
         endTime.setHours(endHour, endMin, 0, 0);
