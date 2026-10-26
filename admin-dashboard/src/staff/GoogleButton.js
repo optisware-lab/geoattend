@@ -24,7 +24,7 @@ function loadGoogleIdentity() {
  * Google's official "Continue with Google" button (Google Identity Services).
  * Calls onCredential with the Google ID token; the server verifies it.
  */
-export default function GoogleButton({ onCredential, disabled }) {
+export default function GoogleButton({ onCredential, disabled, text = 'continue_with' }) {
   const containerRef = useRef(null);
   const callbackRef = useRef(onCredential);
   const [error, setError] = useState('');
@@ -43,12 +43,12 @@ export default function GoogleButton({ onCredential, disabled }) {
         });
         const width = Math.min(400, containerRef.current.offsetWidth || 320);
         window.google.accounts.id.renderButton(containerRef.current, {
-          type: 'standard', theme: 'outline', size: 'large', text: 'continue_with', shape: 'pill', width,
+          type: 'standard', theme: 'outline', size: 'large', text, shape: 'pill', width,
         });
       })
-      .catch(() => { if (!cancelled) setError('Google sign-in is unavailable right now. Use your Staff ID below.'); });
+      .catch(() => { if (!cancelled) setError('Google sign-in is unavailable right now. Use the form below.'); });
     return () => { cancelled = true; };
-  }, []);
+  }, [text]);
 
   return (
     <div>

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  session, staffLogin, googleAuth, completeGoogleSignup, getTodayStatus, checkIn, checkOut, checkInFromImage,
-  webDeviceId, errorMessage,
+  session, staffLogin, googleAuth, completeGoogleSignup, registerStaff, forgotPassword, forgotStaffId,
+  getTodayStatus, checkIn, checkOut, checkInFromImage, webDeviceId, errorMessage,
 } from './staffApi';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 import GoogleButton from './GoogleButton';
@@ -164,7 +164,196 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
   );
 }
 
+const textLink = { background: 'none', border: 'none', color: NAVY, fontSize: 14, fontWeight: 600, cursor: 'pointer', padding: '6px 0' };
+
+/** New staff account: Google (one tap) or a short form. */
+function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
+  const [form, setForm] = useState({
+    code: initialCode, firstName: '', lastName: '', staffId: '', phone: '', email: '', password: '', confirm: '',
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: key === 'code' || key === 'staffId' ? e.target.value.toUpperCase() : e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const institutionCode = form.code.trim();
+    const staffId = form.staffId.trim();
+    if (!institutionCode || !form.firstName.trim() || !form.lastName.trim() || !staffId || !form.phone.trim() || !form.email.trim()) {
+      setError('Fill in every field.');
+      return;
+    }
+    if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (form.password !== form.confirm) { setError('Passwords do not match.'); return; }
+
+    setBusy(true);
+    setError('');
+    try {
+      await registerStaff({
+        institutionCode, staffId,
+        firstName: form.firstName.trim(), lastName: form.lastName.trim(),
+        phone: form.phone.trim(), email: form.email.trim().toLowerCase(), password: form.password,
+      });
+      // Sign straight in with the new account
+      const { data } = await staffLogin(institutionCode, staffId, form.password);
+      session.save(data, institutionCode);
+      onSignedIn();
+    } catch (err) {
+      setError(errorMessage(err, 'Could not create your account. Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form style={s.card} onSubmit={submit}>
+      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>Create your account</div>
+      <GoogleButton text="signup_with" onCredential={onGoogle} disabled={googleBusy || busy} />
+      <p style={{ ...s.muted, textAlign: 'center', margin: '10px 0 0' }}>
+        {googleBusy ? 'Signing up with Google... (up to a minute if the server is waking up)' : 'Fastest: sign up with Google, then add your phone and institution code.'}
+      </p>
+
+      <Divider text="OR FILL IN THE FORM" />
+
+      <label style={s.label} htmlFor="r-code">Institution Code</label>
+      <input id="r-code" style={s.input} value={form.code} onChange={set('code')} placeholder="Ask your administrator, e.g. INST-123456" autoCapitalize="characters" />
+      <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={s.label} htmlFor="r-first">First name</label>
+          <input id="r-first" style={s.input} value={form.firstName} onChange={set('firstName')} autoComplete="given-name" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={s.label} htmlFor="r-last">Last name</label>
+          <input id="r-last" style={s.input} value={form.lastName} onChange={set('lastName')} autoComplete="family-name" />
+        </div>
+      </div>
+      <label style={s.label} htmlFor="r-staffid">Staff ID</label>
+      <input id="r-staffid" style={s.input} value={form.staffId} onChange={set('staffId')} placeholder="Your staff number, e.g. STF001" autoCapitalize="characters" autoComplete="username" />
+      <label style={s.label} htmlFor="r-phone">Phone number</label>
+      <input id="r-phone" style={s.input} type="tel" value={form.phone} onChange={set('phone')} placeholder="e.g. 024 123 4567" autoComplete="tel" />
+      <label style={s.label} htmlFor="r-email">Email</label>
+      <input id="r-email" style={s.input} type="email" value={form.email} onChange={set('email')} placeholder="Used to reset your password" autoComplete="email" />
+      <label style={s.label} htmlFor="r-pass">Password</label>
+      <input id="r-pass" style={s.input} type="password" value={form.password} onChange={set('password')} placeholder="At least 6 characters" autoComplete="new-password" />
+      <label style={s.label} htmlFor="r-confirm">Confirm password</label>
+      <input id="r-confirm" style={s.input} type="password" value={form.confirm} onChange={set('confirm')} autoComplete="new-password" />
+      <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy || googleBusy}>
+        {busy ? 'Creating account...' : 'Create Account'}
+      </button>
+      {error && <div style={s.banner('error')}>{error}</div>}
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <button type="button" style={textLink} onClick={onBack}>Already have an account? Sign in</button>
+      </div>
+    </form>
+  );
+}
+
+function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
+  const [code, setCode] = useState(initialCode);
+  const [staffId, setStaffId] = useState(initialStaffId);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!code.trim() || !staffId.trim() || !email.trim()) { setError('Enter your institution code, Staff ID and email.'); return; }
+    if (password.length < 6) { setError('New password must be at least 6 characters.'); return; }
+    if (password !== confirm) { setError('Passwords do not match.'); return; }
+    setBusy(true);
+    setError('');
+    try {
+      await forgotPassword(code.trim().toUpperCase(), staffId.trim().toUpperCase(), email.trim(), password);
+      onDone(staffId.trim().toUpperCase(), 'Password changed. Sign in with your new password.');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not reset your password. Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form style={s.card} onSubmit={submit}>
+      <div style={{ fontSize: 18, fontWeight: 700 }}>Reset your password</div>
+      <p style={{ ...s.muted, margin: '6px 0 16px' }}>Enter the email on your GeoAttend account. Signed up with Google? Just use Continue with Google instead.</p>
+      <label style={s.label} htmlFor="f-code">Institution Code</label>
+      <input id="f-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" />
+      <label style={s.label} htmlFor="f-staffid">Staff ID</label>
+      <input id="f-staffid" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)} autoCapitalize="characters" autoComplete="username" />
+      <label style={s.label} htmlFor="f-email">Email</label>
+      <input id="f-email" style={s.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+      <label style={s.label} htmlFor="f-pass">New password</label>
+      <input id="f-pass" style={s.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" autoComplete="new-password" />
+      <label style={s.label} htmlFor="f-confirm">Confirm new password</label>
+      <input id="f-confirm" style={s.input} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+      <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy}>
+        {busy ? 'Saving...' : 'Reset Password'}
+      </button>
+      {error && <div style={s.banner('error')}>{error}</div>}
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <button type="button" style={textLink} onClick={onBack}>Back to sign in</button>
+      </div>
+    </form>
+  );
+}
+
+function ForgotStaffIdForm({ initialCode, onUse, onBack }) {
+  const [code, setCode] = useState(initialCode);
+  const [email, setEmail] = useState('');
+  const [found, setFound] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!code.trim() || !email.trim()) { setError('Enter your institution code and email.'); return; }
+    setBusy(true);
+    setError('');
+    setFound(null);
+    try {
+      const { data } = await forgotStaffId(code.trim().toUpperCase(), email.trim());
+      setFound(data);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not find your Staff ID. Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form style={s.card} onSubmit={submit}>
+      <div style={{ fontSize: 18, fontWeight: 700 }}>Find your Staff ID</div>
+      <p style={{ ...s.muted, margin: '6px 0 16px' }}>Enter the email on your GeoAttend account.</p>
+      <label style={s.label} htmlFor="s-code">Institution Code</label>
+      <input id="s-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" />
+      <label style={s.label} htmlFor="s-email">Email</label>
+      <input id="s-email" style={s.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+      <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy}>
+        {busy ? 'Searching...' : 'Find My Staff ID'}
+      </button>
+      {error && <div style={s.banner('error')}>{error}</div>}
+      {found && (
+        <div style={s.banner('success')}>
+          {found.firstName ? `${found.firstName}, your` : 'Your'} Staff ID is <strong>{found.staffId}</strong>
+          <div style={{ marginTop: 8 }}>
+            <button type="button" style={{ ...textLink, color: '#1e8449' }} onClick={() => onUse(found.staffId, code.trim().toUpperCase())}>
+              Use it to sign in →
+            </button>
+          </div>
+        </div>
+      )}
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        <button type="button" style={textLink} onClick={onBack}>Back to sign in</button>
+      </div>
+    </form>
+  );
+}
+
 function SignIn({ onSignedIn }) {
+  const [view, setView] = useState(() => (window.location.hash === '#signup' ? 'signup' : 'signin'));
+  const [info, setInfo] = useState('');
   const [code, setCode] = useState(session.lastInstitutionCode());
   const [staffId, setStaffId] = useState(session.lastStaffId());
   const [password, setPassword] = useState('');
@@ -220,8 +409,27 @@ function SignIn({ onSignedIn }) {
         </div>
       </div>
       <div style={s.wrap}>
+        {info && !profileStep && view === 'signin' && <div style={s.banner('success')}>{info}</div>}
         {profileStep ? (
           <CompleteGoogleProfile step={profileStep} onDone={onSignedIn} onCancel={() => setProfileStep(null)} />
+        ) : view === 'signup' ? (
+          <>
+            <SignUpForm initialCode={code} onGoogle={handleGoogle} googleBusy={googleBusy} onSignedIn={onSignedIn} onBack={() => setView('signin')} />
+            {error && <div style={s.banner('error')}>{error}</div>}
+          </>
+        ) : view === 'forgotPassword' ? (
+          <ForgotPasswordForm
+            initialCode={code}
+            initialStaffId={staffId}
+            onBack={() => setView('signin')}
+            onDone={(id, msg) => { setStaffId(id); setPassword(''); setInfo(msg); setView('signin'); }}
+          />
+        ) : view === 'forgotStaffId' ? (
+          <ForgotStaffIdForm
+            initialCode={code}
+            onBack={() => setView('signin')}
+            onUse={(id, inst) => { setStaffId(id); if (inst) setCode(inst); setInfo(`Staff ID filled in: ${id}`); setView('signin'); }}
+          />
         ) : (
           <form style={s.card} onSubmit={submit}>
             <GoogleButton onCredential={handleGoogle} disabled={googleBusy || busy} />
@@ -245,10 +453,22 @@ function SignIn({ onSignedIn }) {
             </button>
             {busy && <p style={{ ...s.muted, textAlign: 'center', marginBottom: 0 }}>The first sign-in can take up to a minute while the server wakes up.</p>}
             {error && <div style={s.banner('error')}>{error}</div>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, flexWrap: 'wrap', gap: 4 }}>
+              <button type="button" style={textLink} onClick={() => { setError(''); setInfo(''); setView('forgotPassword'); }}>Forgot password?</button>
+              <button type="button" style={textLink} onClick={() => { setError(''); setInfo(''); setView('forgotStaffId'); }}>Forgot Staff ID?</button>
+            </div>
           </form>
         )}
+        {view === 'signin' && !profileStep && (
+          <div style={{ ...s.card, textAlign: 'center' }}>
+            <div style={{ fontWeight: 700 }}>New to GeoAttend?</div>
+            <button type="button" style={{ ...s.outline, marginTop: 10 }} onClick={() => { setError(''); setInfo(''); setView('signup'); }}>
+              Create an account
+            </button>
+          </div>
+        )}
         <p style={{ ...s.muted, textAlign: 'center', marginTop: 16 }}>
-          Use the same Staff ID and password as the GeoAttend app. Forgot them? Ask your administrator.
+          Same account as the GeoAttend Android app. You need your institution code from your administrator.
         </p>
       </div>
     </div>

@@ -56,6 +56,10 @@ export const googleAuth = (idToken, institutionCode) =>
   api.post('/auth/google', { idToken, institutionCode: institutionCode || undefined, ...deviceFields() });
 /** Step 2 for first-time Google users: phone + institution (creates or completes the account). */
 export const completeGoogleSignup = (data) => api.post('/auth/google/complete', { ...data, ...deviceFields() });
+export const registerStaff = (data) => api.post('/auth/register', data);
+export const forgotPassword = (institutionCode, staffId, email, newPassword) =>
+  api.post('/auth/forgot-password', { institutionCode, staffId, email, newPassword });
+export const forgotStaffId = (institutionCode, email) => api.post('/auth/forgot-staff-id', { institutionCode, email });
 export const getTodayStatus = () => api.get('/attendance/today');
 export const checkIn = (data) => api.post('/attendance/check-in', data);
 export const checkOut = (data) => api.post('/attendance/check-out', data);
