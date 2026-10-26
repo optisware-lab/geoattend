@@ -2,7 +2,11 @@ import axios from 'axios';
 
 // Staff web check-in keeps its own session (separate from the admin dashboard's
 // `token`/`user`), so signing in here never affects an admin session and vice versa.
-const KEYS = { token: 'staffToken', user: 'staffUser', institution: 'staffInstitution', code: 'staffInstitutionCode' };
+const KEYS = { token: 'staffToken', user: 'staffUser', institution: 'staffInstitution', code: 'staffInstitutionCode', staffId: 'staffLastStaffId' };
+
+// Public OAuth Web client ID (same one the mobile app uses); not a secret
+export const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID
+  || '183291183606-uv46j7v5qbdq1eaav9m50bu0t85b1e1l.apps.googleusercontent.com';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL
   || (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://geoattend-api-pc49.onrender.com/api');
@@ -33,16 +37,25 @@ export const session = {
     localStorage.setItem(KEYS.token, token);
     localStorage.setItem(KEYS.user, JSON.stringify(user));
     localStorage.setItem(KEYS.institution, JSON.stringify(institution));
-    if (institutionCode) localStorage.setItem(KEYS.code, institutionCode);
+    const code = institutionCode || institution?.code;
+    if (code) localStorage.setItem(KEYS.code, code);
+    if (user?.staffId) localStorage.setItem(KEYS.staffId, user.staffId);
   },
   clear: () => {
     [KEYS.token, KEYS.user, KEYS.institution].forEach((k) => localStorage.removeItem(k));
   },
   lastInstitutionCode: () => localStorage.getItem(KEYS.code) || '',
+  lastStaffId: () => localStorage.getItem(KEYS.staffId) || '',
 };
 
 export const staffLogin = (institutionCode, staffId, password) =>
   api.post('/auth/login', { institutionCode, staffId, password, deviceId: webDeviceId(), deviceModel: 'Web browser', osVersion: navigator.userAgent.slice(0, 100) });
+const deviceFields = () => ({ deviceId: webDeviceId(), deviceModel: 'Web browser', osVersion: navigator.userAgent.slice(0, 100) });
+/** Step 1 of Google sign-in: signs in, or returns { needsProfile, existingAccount, profile }. */
+export const googleAuth = (idToken, institutionCode) =>
+  api.post('/auth/google', { idToken, institutionCode: institutionCode || undefined, ...deviceFields() });
+/** Step 2 for first-time Google users: phone + institution (creates or completes the account). */
+export const completeGoogleSignup = (data) => api.post('/auth/google/complete', { ...data, ...deviceFields() });
 export const getTodayStatus = () => api.get('/attendance/today');
 export const checkIn = (data) => api.post('/attendance/check-in', data);
 export const checkOut = (data) => api.post('/attendance/check-out', data);

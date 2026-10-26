@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  session, staffLogin, getTodayStatus, checkIn, checkOut, checkInFromImage, webDeviceId, errorMessage,
+  session, staffLogin, googleAuth, completeGoogleSignup, getTodayStatus, checkIn, checkOut, checkInFromImage,
+  webDeviceId, errorMessage,
 } from './staffApi';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
+import GoogleButton from './GoogleButton';
 
 const NAVY = '#1a5276';
 
@@ -68,12 +70,126 @@ const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches |
 
 // ---------- Sign in ----------
 
-function SignIn({ onSignedIn }) {
-  const [code, setCode] = useState(session.lastInstitutionCode());
+function Divider({ text }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0' }}>
+      <div style={{ flex: 1, height: 1, background: '#e0e0e0' }} />
+      <span style={{ fontSize: 12, color: '#95a5a6', fontWeight: 600 }}>{text}</span>
+      <div style={{ flex: 1, height: 1, background: '#e0e0e0' }} />
+    </div>
+  );
+}
+
+/** One-time step for a first Google sign-in: phone number (+ institution for new accounts). */
+function CompleteGoogleProfile({ step, onDone, onCancel }) {
+  const { idToken, profile, existingAccount } = step;
+  const [code, setCode] = useState(profile.institutionCode || session.lastInstitutionCode());
+  const [firstName, setFirstName] = useState(profile.firstName || '');
+  const [lastName, setLastName] = useState(profile.lastName || '');
+  const [phone, setPhone] = useState('');
   const [staffId, setStaffId] = useState('');
-  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const institutionCode = code.trim().toUpperCase();
+    if (!phone.trim()) { setError('Enter your phone number.'); return; }
+    if (!existingAccount && (!institutionCode || !firstName.trim() || !lastName.trim())) {
+      setError('Enter your institution code and your name.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await completeGoogleSignup({
+        idToken,
+        institutionCode: existingAccount ? undefined : institutionCode,
+        phone: phone.trim(),
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        staffId: staffId.trim() || undefined,
+      });
+      session.save(data, institutionCode);
+      onDone();
+    } catch (err) {
+      const msg = errorMessage(err, 'Could not finish signing up. Please try again.');
+      setError(/could not be verified/i.test(msg) ? 'Your Google sign-in expired. Tap Back and continue with Google again.' : msg);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form style={s.card} onSubmit={submit}>
+      <div style={{ fontSize: 18, fontWeight: 700 }}>Almost done</div>
+      <p style={{ ...s.muted, margin: '6px 0 16px' }}>
+        {existingAccount
+          ? `We found your account (${profile.email}). Add your phone number to finish.`
+          : `Signed in as ${profile.email}. Tell us where you work. You only do this once.`}
+      </p>
+      {!existingAccount && (
+        <>
+          <label style={s.label} htmlFor="g-code">Institution Code</label>
+          <input id="g-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="e.g. INST-123456" autoCapitalize="characters" />
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={s.label} htmlFor="g-first">First name</label>
+              <input id="g-first" style={s.input} value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={s.label} htmlFor="g-last">Last name</label>
+              <input id="g-last" style={s.input} value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
+            </div>
+          </div>
+        </>
+      )}
+      <label style={s.label} htmlFor="g-phone">Phone number</label>
+      <input id="g-phone" style={s.input} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+        placeholder="e.g. 024 123 4567" autoComplete="tel" />
+      {!existingAccount && (
+        <>
+          <label style={s.label} htmlFor="g-staffid">Staff ID (optional)</label>
+          <input id="g-staffid" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)}
+            placeholder="Leave blank to get one assigned" autoCapitalize="characters" />
+        </>
+      )}
+      <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy}>
+        {busy ? 'Saving...' : 'Continue'}
+      </button>
+      <button type="button" style={s.outline} onClick={onCancel} disabled={busy}>Back</button>
+      {error && <div style={s.banner('error')}>{error}</div>}
+    </form>
+  );
+}
+
+function SignIn({ onSignedIn }) {
+  const [code, setCode] = useState(session.lastInstitutionCode());
+  const [staffId, setStaffId] = useState(session.lastStaffId());
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [profileStep, setProfileStep] = useState(null);
+  const [error, setError] = useState('');
+
+  const handleGoogle = async (idToken) => {
+    setGoogleBusy(true);
+    setError('');
+    try {
+      const { data } = await googleAuth(idToken, code.trim().toUpperCase());
+      if (data.needsProfile) {
+        setProfileStep({ idToken, profile: data.profile || {}, existingAccount: !!data.existingAccount });
+        return;
+      }
+      session.save(data);
+      onSignedIn();
+    } catch (err) {
+      setError(errorMessage(err, 'Google sign-in failed. Please try again.'));
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -104,22 +220,33 @@ function SignIn({ onSignedIn }) {
         </div>
       </div>
       <div style={s.wrap}>
-        <form style={s.card} onSubmit={submit}>
-          <label style={s.label} htmlFor="code">Institution Code</label>
-          <input id="code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="e.g. INST-123456" autoCapitalize="characters" autoComplete="organization" />
-          <label style={s.label} htmlFor="staffId">Staff ID</label>
-          <input id="staffId" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)}
-            placeholder="Your Staff ID" autoCapitalize="characters" autoComplete="username" />
-          <label style={s.label} htmlFor="password">Password</label>
-          <input id="password" style={s.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-            placeholder="Your password" autoComplete="current-password" />
-          <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy}>
-            {busy ? 'Signing in...' : 'Sign In'}
-          </button>
-          {busy && <p style={{ ...s.muted, textAlign: 'center', marginBottom: 0 }}>The first sign-in can take up to a minute while the server wakes up.</p>}
-          {error && <div style={s.banner('error')}>{error}</div>}
-        </form>
+        {profileStep ? (
+          <CompleteGoogleProfile step={profileStep} onDone={onSignedIn} onCancel={() => setProfileStep(null)} />
+        ) : (
+          <form style={s.card} onSubmit={submit}>
+            <GoogleButton onCredential={handleGoogle} disabled={googleBusy || busy} />
+            <p style={{ ...s.muted, textAlign: 'center', margin: '10px 0 0' }}>
+              {googleBusy ? 'Signing in with Google... (up to a minute if the server is waking up)' : 'One tap. New staff can sign up this way too.'}
+            </p>
+
+            <Divider text="OR USE YOUR STAFF ID" />
+
+            <label style={s.label} htmlFor="code">Institution Code</label>
+            <input id="code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="e.g. INST-123456" autoCapitalize="characters" autoComplete="organization" />
+            <label style={s.label} htmlFor="staffId">Staff ID</label>
+            <input id="staffId" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)}
+              placeholder="Your Staff ID" autoCapitalize="characters" autoComplete="username" />
+            <label style={s.label} htmlFor="password">Password</label>
+            <input id="password" style={s.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password" autoComplete="current-password" />
+            <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy || googleBusy}>
+              {busy ? 'Signing in...' : 'Sign In'}
+            </button>
+            {busy && <p style={{ ...s.muted, textAlign: 'center', marginBottom: 0 }}>The first sign-in can take up to a minute while the server wakes up.</p>}
+            {error && <div style={s.banner('error')}>{error}</div>}
+          </form>
+        )}
         <p style={{ ...s.muted, textAlign: 'center', marginTop: 16 }}>
           Use the same Staff ID and password as the GeoAttend app. Forgot them? Ask your administrator.
         </p>
