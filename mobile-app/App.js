@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Updates from 'expo-updates';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ToastProvider } from './src/services/Toast';
@@ -72,9 +73,28 @@ function MainTabs({ onLogout }) {
   );
 }
 
+// Without this, a published update only takes effect on the launch after the
+// one that downloaded it. If it downloads quickly, restart into it right away;
+// otherwise leave it for the next launch so a slow connection never interrupts.
+const UPDATE_RELOAD_WINDOW_MS = 10000;
+async function applyUpdateOnLaunch() {
+  if (__DEV__ || !Updates.isEnabled) return;
+  const startedAt = Date.now();
+  try {
+    const { isAvailable } = await Updates.checkForUpdateAsync();
+    if (!isAvailable) return;
+    await Updates.fetchUpdateAsync();
+    if (Date.now() - startedAt < UPDATE_RELOAD_WINDOW_MS) await Updates.reloadAsync();
+  } catch {
+    // Offline or update server unreachable: keep running the current version
+  }
+}
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => { applyUpdateOnLaunch(); }, []);
 
   useEffect(() => {
     AsyncStorage.getItem('token').then(async (token) => {
