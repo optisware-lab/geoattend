@@ -1,8 +1,9 @@
 // GeoAttend price list (Ghana cedis). The server is the source of truth: the
 // dashboard shows these prices and payment verification checks against them.
 //
-// Tier is picked by the institution's active staff count. A term is billed as
-// ~4 months at 3.5x the monthly price; a year is 10x the monthly price.
+// Tier is picked by the institution's active staff count. Monthly prices are
+// round numbers; a term (~4 months) is 3.8x monthly (5% off) and a year is
+// 10x monthly (2 months free).
 
 const CURRENCY = 'GHS';
 
@@ -13,9 +14,9 @@ const PERIODS = {
 };
 
 const TIERS = [
-  { id: 'starter', name: 'Starter', maxStaff: 12, prices: { monthly: 100, termly: 350, yearly: 1000 } },
-  { id: 'standard', name: 'Standard', maxStaff: 40, prices: { monthly: 200, termly: 700, yearly: 2000 } },
-  { id: 'growth', name: 'Growth', maxStaff: 100, prices: { monthly: 400, termly: 1400, yearly: 4000 } },
+  { id: 'starter', name: 'Starter', maxStaff: 12, prices: { monthly: 100, termly: 380, yearly: 1000 } },
+  { id: 'standard', name: 'Standard', maxStaff: 40, prices: { monthly: 200, termly: 760, yearly: 2000 } },
+  { id: 'growth', name: 'Growth', maxStaff: 100, prices: { monthly: 400, termly: 1520, yearly: 4000 } },
 ];
 
 // Above the largest tier: priced per active staff member
@@ -31,7 +32,7 @@ function getTier(staffCount) {
     id: 'enterprise',
     name: 'Enterprise',
     maxStaff: null,
-    prices: { monthly, termly: Math.round(monthly * 3.5), yearly: monthly * 10 },
+    prices: { monthly, termly: Math.round(monthly * 3.8), yearly: monthly * 10 },
   };
 }
 
