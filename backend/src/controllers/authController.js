@@ -200,10 +200,36 @@ async function verifyGoogleIdToken(idToken) {
     googleId: String(payload.sub),
     email: payload.email ? payload.email.toLowerCase() : null,
     emailVerified: payload.email_verified === true,
-    firstName: (payload.given_name || payload.name || '').slice(0, 100),
-    lastName: (payload.family_name || '').slice(0, 100),
+    ...googleNameParts(payload),
     picture: payload.picture || null,
   };
+}
+
+/**
+ * Google's given_name/family_name are optional: many accounts only have a
+ * display name, or a first name with the surname left blank. Fall back to the
+ * full display name, but only split it when it is unambiguous; otherwise leave
+ * the last name empty so the sign-up form asks for it.
+ */
+function googleNameParts(payload) {
+  const full = String(payload.name || '').trim().replace(/\s+/g, ' ');
+  let first = String(payload.given_name || '').trim();
+  let last = String(payload.family_name || '').trim();
+
+  if (!last && full) {
+    if (first && full.toLowerCase().startsWith(`${first.toLowerCase()} `)) {
+      // e.g. given_name "Ama", name "Ama Mensah" -> last "Mensah"
+      last = full.slice(first.length).trim();
+    } else if (!first) {
+      // No given_name either: "Ama Mensah" -> Ama / Mensah
+      const parts = full.split(' ');
+      last = parts.length > 1 ? parts.pop() : '';
+      first = parts.join(' ');
+    }
+  }
+  if (!first) first = full;
+
+  return { firstName: first.slice(0, 100), lastName: last.slice(0, 100) };
 }
 
 /**
