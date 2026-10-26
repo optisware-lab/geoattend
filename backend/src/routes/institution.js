@@ -6,6 +6,7 @@ const { requireActiveSubscription } = require('../middleware/subscription');
 router.use(authenticate);
 
 router.get('/subscription', institutionController.getSubscriptionStatus);
+router.get('/subscription/plans', requireAdmin, institutionController.getSubscriptionPlans);
 router.post('/subscription/activate', requireAdmin, institutionController.activateSubscription);
 router.post('/subscription/extend-trial', requireAdmin, institutionController.extendTrial);
 

@@ -1,20 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
-import { getSubscriptionStatus, activateSubscription } from '../services/api';
+import { getSubscriptionStatus, getSubscriptionPlans, activateSubscription } from '../services/api';
 
-const PLANS = [
-  { name: 'Monthly', days: 30, priceNGN: 5000 },
-  { name: 'Quarterly', days: 90, priceNGN: 14000 },
-  { name: 'Yearly', days: 365, priceNGN: 48000 },
-];
+// Prices come from the server (backend/src/config/pricing.js), in Ghana cedis
+const formatGHS = (amount) => `GH₵ ${Number(amount || 0).toLocaleString('en-GH')}`;
 
 export default function Billing() {
   const [subscription, setSubscription] = useState(null);
+  const [pricing, setPricing] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(PLANS[0]);
+  const [selectedPlan, setSelectedPlan] = useState(null);
 
   useEffect(() => {
     fetchStatus();
+    getSubscriptionPlans()
+      .then(({ data }) => setPricing(data))
+      .catch((err) => {
+        console.error('Failed to load plans', err?.response?.data || err.message || err);
+        toast.error('Failed to load subscription prices');
+      });
   }, []);
 
   const fetchStatus = async () => {
@@ -47,22 +51,21 @@ export default function Billing() {
       }
 
       const email = (JSON.parse(localStorage.getItem('user')) || {}).email || '';
-      const amountKobo = (plan.priceNGN * 100).toString();
+      const amountPesewas = (plan.amount * 100).toString();
 
       const handler = window.PaystackPop.setup({
         key: publicKey,
         email: email || 'billing@institution.local',
-        amount: amountKobo,
-        currency: 'NGN',
-        channels: ['card', 'bank', 'ussd', 'qr'],
+        amount: amountPesewas,
+        currency: 'GHS',
+        channels: ['mobile_money', 'card'],
         onClose: function() {
           setLoading(false);
           toast.info('Payment window closed');
         },
         callback: async function(response) {
-          // response.reference
           try {
-            await activateSubscription({ planName: plan.name, durationDays: plan.days, paymentReference: response.reference });
+            await activateSubscription({ planId: plan.id, paymentReference: response.reference });
             toast.success('Subscription activated');
             fetchStatus();
           } catch (err) {
@@ -82,12 +85,20 @@ export default function Billing() {
     }
   };
 
+  const monthlyPlan = pricing?.plans.find((p) => p.id === 'monthly');
+  const savingFor = (plan) => {
+    if (!monthlyPlan || plan.id === 'monthly') return null;
+    const full = Math.round((monthlyPlan.amount / 30) * plan.days);
+    const saved = full - plan.amount;
+    return saved > 0 ? saved : null;
+  };
+
   return (
     <div>
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>Billing & Subscription</h1>
 
-      <div style={{ display: 'flex', gap: 20, marginBottom: 24 }}>
-        <div style={{ flex: 1, padding: 20, background: '#fff', borderRadius: 10 }}>
+      <div style={{ display: 'flex', gap: 20, marginBottom: 24, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 260, padding: 20, background: '#fff', borderRadius: 10 }}>
           <h3 style={{ marginTop: 0 }}>Current Subscription</h3>
           {subscription ? (
             <div>
@@ -98,29 +109,43 @@ export default function Billing() {
           ) : (
             <p>No subscription data (you may be on trial)</p>
           )}
+          {pricing && (
+            <p style={{ color: '#7f8c8d', fontSize: 13, marginBottom: 0 }}>
+              Your price tier: <strong>{pricing.tier.name}</strong> ({pricing.staffCount} active staff
+              {pricing.tier.maxStaff ? `, up to ${pricing.tier.maxStaff}` : ''})
+            </p>
+          )}
         </div>
 
-        <div style={{ width: 340, padding: 20, background: '#fff', borderRadius: 10 }}>
+        <div style={{ width: 380, maxWidth: '100%', padding: 20, background: '#fff', borderRadius: 10 }}>
           <h3 style={{ marginTop: 0 }}>Purchase Plan</h3>
-          {PLANS.map((p) => (
-            <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{p.name}</div>
-                <div style={{ color: '#7f8c8d' }}>{p.days} days — ₦{p.priceNGN.toLocaleString()}</div>
+          {!pricing && <p style={{ color: '#95a5a6' }}>Loading prices...</p>}
+          {pricing?.plans.map((p) => {
+            const saved = savingFor(p);
+            return (
+              <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #f5f5f5' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{p.name}</div>
+                  <div style={{ color: '#2c3e50' }}>{formatGHS(p.amount)} <span style={{ color: '#7f8c8d', fontSize: 12 }}>· {p.days} days</span></div>
+                  {saved && (
+                    <div style={{ color: '#27ae60', fontSize: 12, fontWeight: 600 }}>Save {formatGHS(saved)} vs monthly</div>
+                  )}
+                </div>
+                <div>
+                  <button
+                    onClick={() => { setSelectedPlan(p); handlePay(p); }}
+                    disabled={loading}
+                    style={{ padding: '8px 12px', borderRadius: 8, background: '#1a5276', color: '#fff', border: 'none', cursor: 'pointer' }}
+                  >
+                    {loading && selectedPlan?.id === p.id ? 'Processing...' : 'Pay'}
+                  </button>
+                </div>
               </div>
-              <div>
-                <button
-                  onClick={() => { setSelectedPlan(p); handlePay(p); }}
-                  disabled={loading}
-                  style={{ padding: '8px 12px', borderRadius: 8, background: '#1a5276', color: '#fff', border: 'none', cursor: 'pointer' }}
-                >
-                  {loading && selectedPlan?.name === p.name ? 'Processing...' : 'Pay'}
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           <div style={{ marginTop: 12, fontSize: 12, color: '#95a5a6' }}>
-            Payments are processed by Paystack. After successful payment your subscription will be activated.
+            Pay with MTN MoMo, Telecel Cash, AirtelTigo Money or card. Payments are processed by Paystack;
+            your subscription activates as soon as payment is confirmed.
           </div>
         </div>
       </div>

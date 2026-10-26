@@ -11,6 +11,7 @@ const {
   getCurrentSubscription,
   buildSubscriptionSnapshot,
 } = require('../services/subscriptionService');
+const { CURRENCY, getPlansForStaffCount, getPlan } = require('../config/pricing');
 
 async function generateInstitutionCode(db) {
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -365,9 +366,52 @@ exports.getSubscriptionStatus = async (req, res) => {
 
 const axios = require('axios');
 
+async function countActiveStaff(db, institutionId) {
+  const result = await db.query(
+    "SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND is_active = true AND member_type = 'staff'",
+    [institutionId]
+  );
+  return parseInt(result.rows[0].count, 10);
+}
+
+// Prices this institution can pay, based on its active staff count
+exports.getSubscriptionPlans = async (req, res) => {
+  try {
+    const staffCount = await countActiveStaff(req.tenantDb, req.user.institution_id);
+    res.json({ staffCount, ...getPlansForStaffCount(staffCount) });
+  } catch (err) {
+    console.error('Get subscription plans error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.activateSubscription = async (req, res) => {
   try {
-    const { planName, durationDays, paymentReference } = req.body;
+    const { planId, paymentReference } = req.body;
+    let { planName, durationDays } = req.body;
+    let expectedPayment = null;
+
+    if (paymentReference) {
+      // Each Paystack payment can activate a subscription only once
+      const used = await req.tenantDb.query('SELECT id FROM subscriptions WHERE payment_reference = $1 LIMIT 1', [paymentReference]);
+      if (used.rows.length > 0) {
+        return res.status(409).json({ error: 'This payment has already been used to activate a subscription' });
+      }
+
+      // Paid activation: the plan, duration and price come from the server's price list
+      const staffCount = await countActiveStaff(req.tenantDb, req.user.institution_id);
+      const plan = getPlan(staffCount, planId);
+      if (!plan) {
+        return res.status(400).json({ error: 'Unknown plan — choose Monthly, Per Term or Yearly' });
+      }
+      planName = `${getPlansForStaffCount(staffCount).tier.name} — ${plan.name}`;
+      durationDays = plan.days;
+      expectedPayment = { amountPesewas: plan.amount * 100, currency: CURRENCY };
+    } else if (req.user.role !== 'super_admin') {
+      // Without a payment, only the super admin may activate (e.g. a mobile money payment received manually)
+      return res.status(400).json({ error: 'A payment reference is required to activate a subscription' });
+    }
+
     const days = parseInt(durationDays || '30', 10);
 
     if (!Number.isFinite(days) || days < 1 || days > 366) {
@@ -386,9 +430,15 @@ exports.activateSubscription = async (req, res) => {
           headers: { Authorization: `Bearer ${secret}` },
           timeout: 15000,
         });
-        const verified = verifyRes.data && verifyRes.data.data && verifyRes.data.data.status === 'success';
-        if (!verified) {
+        const tx = verifyRes.data && verifyRes.data.data;
+        if (!tx || tx.status !== 'success') {
           return res.status(400).json({ error: 'Payment not verified or failed' });
+        }
+        // A successful payment is not enough: it must be in cedis and cover the plan's price
+        const { amountPesewas, currency } = expectedPayment;
+        if (String(tx.currency).toUpperCase() !== currency || Number(tx.amount) < amountPesewas) {
+          console.error('Paystack amount mismatch:', { reference: paymentReference, paid: tx.amount, currency: tx.currency, expected: amountPesewas });
+          return res.status(400).json({ error: `Payment amount does not match the plan price (GHS ${amountPesewas / 100})` });
         }
       } catch (verErr) {
         console.error('Paystack verify error:', verErr?.response?.data || verErr.message || verErr);

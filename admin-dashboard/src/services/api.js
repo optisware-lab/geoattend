@@ -82,6 +82,7 @@ export const getInstitutionAdminCredentials = (id) => api.get(`/institutions/${i
 export const createInstitutionAdminCredentials = (id) => api.post(`/institutions/${id}/admin-credentials`);
 // Subscriptions / Billing
 export const getSubscriptionStatus = () => api.get('/institutions/subscription');
+export const getSubscriptionPlans = () => api.get('/institutions/subscription/plans');
 export const activateSubscription = (data) => api.post('/institutions/subscription/activate', data);
 
 // Reports
