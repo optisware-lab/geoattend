@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert, SafeAreaView,
-  ScrollView, TextInput, Image,
+  ScrollView, TextInput, Image, ActivityIndicator,
 } from 'react-native';
+import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Updates from 'expo-updates';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,36 +25,79 @@ export default function ProfileScreen({ navigation, onLogout }) {
   const toast = useToast();
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(false);
+  const [profileError, setProfileError] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
 
   useEffect(() => {
     isBiometricAvailable().then(setBioAvailable);
     isBiometricEnabled().then(setBioEnabled);
   }, []);
 
-  useEffect(() => {
-    getProfile().then(r => {
-      setProfile(r.data);
-      if (r.data.profile_photo_url) setProfilePhoto(r.data.profile_photo_url);
-    }).catch(async () => {
-      // Fallback: load from local storage
-      try {
-        const userData = await AsyncStorage.getItem('user');
-        if (userData) {
-          const user = JSON.parse(userData);
-          setProfile({
-            first_name: user.firstName,
-            last_name: user.lastName,
-            staff_id: user.staffId,
-            email: user.email,
-            role: user.role,
-            department: user.department || '-',
-            position: user.position || '-',
-            institution_name: user.institutionName || '-',
-          });
-        }
-      } catch {}
-    });
-  }, []);
+  // Show the details saved at sign-in straight away, then refresh from the
+  // server (which can take a while when it is waking up or offline)
+  const loadProfile = async () => {
+    setProfileError(false);
+    let hasCached = false;
+    try {
+      const userData = await AsyncStorage.getItem('user');
+      if (userData) {
+        const user = JSON.parse(userData);
+        hasCached = true;
+        setProfile((current) => current || {
+          first_name: user.firstName,
+          last_name: user.lastName,
+          staff_id: user.staffId,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          department: user.department || '-',
+          position: user.position || '-',
+          institution_name: user.institutionName || '-',
+        });
+        if (user.profilePhoto) setProfilePhoto((current) => current || user.profilePhoto);
+      }
+    } catch {}
+
+    try {
+      const { data } = await getProfile();
+      if (data && typeof data === 'object') {
+        setProfile(data);
+        if (data.profile_photo_url) setProfilePhoto(data.profile_photo_url);
+      } else if (!hasCached) {
+        setProfileError(true);
+      }
+    } catch {
+      if (!hasCached) setProfileError(true);
+    }
+  };
+
+  useEffect(() => { loadProfile(); }, []);
+
+  const updateLabel = Updates.isEnabled && Updates.updateId && !Updates.isEmbeddedLaunch
+    ? `update ${Updates.updateId.slice(0, 8)}${Updates.createdAt ? ` (${new Date(Updates.createdAt).toLocaleDateString()})` : ''}`
+    : 'built-in';
+
+  const handleCheckForUpdates = async () => {
+    if (!Updates.isEnabled) {
+      toast.info('Updates are not available in this build. Install the latest version of the app.');
+      return;
+    }
+    setCheckingUpdate(true);
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) {
+        toast.success('You have the latest version.');
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      toast.success('Update downloaded. Restarting...');
+      setTimeout(() => { Updates.reloadAsync().catch(() => {}); }, 800);
+    } catch {
+      toast.error('Could not check for updates. Check your internet connection.');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const pickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -202,6 +246,23 @@ export default function ProfileScreen({ navigation, onLogout }) {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.title, { color: theme.text }]}>{t('profile')}</Text>
 
+        {!profile && !profileError && (
+          <View style={styles.stateBox}>
+            <ActivityIndicator size="large" color={theme.primary || '#1a5276'} />
+            <Text style={[styles.stateText, { color: theme.textSecondary }]}>Loading your profile...</Text>
+          </View>
+        )}
+
+        {!profile && profileError && (
+          <View style={styles.stateBox}>
+            <Text style={[styles.stateTitle, { color: theme.text }]}>Couldn't load your profile</Text>
+            <Text style={[styles.stateText, { color: theme.textSecondary }]}>Check your internet connection and try again.</Text>
+            <TouchableOpacity style={styles.submitBtn} onPress={loadProfile}>
+              <Text style={styles.submitBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {profile && (
           <>
             <View style={styles.avatarSection}>
@@ -293,11 +354,23 @@ export default function ProfileScreen({ navigation, onLogout }) {
               <Text style={[styles.passwordBtnText, { color: '#27ae60' }]}>Request Leave</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-              <Text style={styles.logoutBtnText}>Sign Out</Text>
-            </TouchableOpacity>
           </>
         )}
+
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+          <Text style={styles.logoutBtnText}>Sign Out</Text>
+        </TouchableOpacity>
+
+        <View style={styles.versionBox}>
+          <Text style={[styles.versionText, { color: theme.textSecondary }]}>
+            GeoAttend {Constants.expoConfig?.version || ''} · {updateLabel}
+          </Text>
+          <TouchableOpacity onPress={handleCheckForUpdates} disabled={checkingUpdate}>
+            <Text style={[styles.versionLink, { color: theme.primary || '#1a5276' }]}>
+              {checkingUpdate ? 'Checking for updates...' : 'Check for updates'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -352,4 +425,10 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#e74c3c',
   },
   logoutBtnText: { fontSize: 15, fontWeight: '600', color: '#e74c3c' },
+  stateBox: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 16 },
+  stateTitle: { fontSize: 17, fontWeight: '700', marginBottom: 6, textAlign: 'center' },
+  stateText: { fontSize: 14, marginTop: 12, marginBottom: 16, textAlign: 'center' },
+  versionBox: { alignItems: 'center', marginTop: 20, marginBottom: 12 },
+  versionText: { fontSize: 12 },
+  versionLink: { fontSize: 13, fontWeight: '600', marginTop: 6 },
 });
