@@ -6,6 +6,7 @@ import {
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleSignInButton from '../components/GoogleSignInButton';
+import AuthSwitch from '../components/AuthSwitch';
 
 export default function RegisterScreen({ navigation, onLogin }) {
   const [form, setForm] = useState({
@@ -69,6 +70,8 @@ export default function RegisterScreen({ navigation, onLogin }) {
         <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.title}>Create Account</Text>
           <Text style={styles.subtitle}>Register as a new staff member</Text>
+
+          <AuthSwitch active="signup" onSignIn={() => navigation.goBack()} />
 
           <View style={styles.form}>
             <View style={styles.inputContainer}>

@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
 import { login } from '../services/api';
 import { useToast } from '../services/Toast';
+import AuthSwitch from '../components/AuthSwitch';
 import { authenticateWithBiometric, isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
 import { getCredentials, saveCredentials } from '../services/credentials';
 import GoogleSignInButton from '../components/GoogleSignInButton';
@@ -172,6 +173,8 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
           <Text style={styles.subtitle}>Staff Attendance System</Text>
         </View>
 
+        <AuthSwitch active="signin" onSignUp={() => onRegister && onRegister()} />
+
         {recentAccounts.length > 0 && (
           <View style={styles.recentSection}>
             <Text style={styles.recentTitle}>Recent Accounts</Text>
@@ -272,8 +275,8 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
           />
         </View>
 
-        <TouchableOpacity onPress={() => onRegister && onRegister()}>
-          <Text style={styles.registerLink}>Don't have an account? Sign Up</Text>
+        <TouchableOpacity style={styles.signUpBtn} onPress={() => onRegister && onRegister()} activeOpacity={0.85}>
+          <Text style={styles.signUpBtnText}>New here? Create an Account</Text>
         </TouchableOpacity>
 
         <Text style={styles.footer}>Geofenced Staff Attendance System</Text>
@@ -286,7 +289,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a5276' },
   inner: { flex: 1, justifyContent: 'center', padding: 24 },
-  logoSection: { alignItems: 'center', marginBottom: 40 },
+  logoSection: { alignItems: 'center', marginBottom: 20 },
   iconCircle: {
     width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 16,
@@ -339,7 +342,11 @@ const styles = StyleSheet.create({
   recentName: { fontSize: 12, fontWeight: '600', color: '#fff' },
   recentId: { fontSize: 10, color: 'rgba(255,255,255,0.6)' },
   forgotText: { textAlign: 'right', color: '#1a5276', fontSize: 13, fontWeight: '500', marginTop: 8 },
-  footer: { textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 32 },
-  registerLink: { textAlign: 'center', color: '#fff', fontSize: 14, fontWeight: '600', marginTop: 20, marginBottom: Platform.OS === 'android' ? 56 : 20 },
-  powered: { textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11, marginTop: 8 },
+  footer: { textAlign: 'center', color: 'rgba(255,255,255,0.4)', fontSize: 12, marginTop: 20 },
+  signUpBtn: {
+    backgroundColor: '#fff', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4,
+  },
+  signUpBtnText: { color: '#1a5276', fontSize: 16, fontWeight: '700' },
+  powered: { textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 11, marginTop: 8, marginBottom: Platform.OS === 'android' ? 48 : 8 },
 });

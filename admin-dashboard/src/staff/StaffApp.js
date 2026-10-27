@@ -20,6 +20,8 @@ const s = {
   green: { background: '#27ae60' },
   red: { background: '#c0392b' },
   outline: { width: '100%', padding: 14, fontSize: 15, fontWeight: 700, color: NAVY, background: '#fff', border: `2px solid ${NAVY}`, borderRadius: 12, cursor: 'pointer', marginTop: 10 },
+  // White on the navy page: as visible as Sign In, without competing inside the card
+  signUpBtn: { width: '100%', padding: 16, fontSize: 17, fontWeight: 700, color: NAVY, background: '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontFamily: 'inherit' },
   link: { background: 'none', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 },
   muted: { fontSize: 13, color: '#7f8c8d' },
   banner: (type) => ({
@@ -124,6 +126,34 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
       <button type="button" style={s.outline} onClick={onCancel} disabled={busy}>Back</button>
       {error && <div style={s.banner('error')}>{error}</div>}
     </form>
+  );
+}
+
+/** "Sign In | Sign Up" switch under the logo, so new staff see Sign Up straight away. */
+function AuthSwitch({ view, onChange }) {
+  const option = (key, label) => {
+    const active = view === key;
+    return (
+      <button
+        type="button"
+        aria-pressed={active}
+        onClick={() => onChange(key)}
+        style={{
+          flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none', cursor: 'pointer',
+          fontSize: 16, fontWeight: 700, fontFamily: 'inherit',
+          background: active ? '#fff' : 'transparent', color: active ? NAVY : '#fff',
+          boxShadow: active ? '0 2px 8px rgba(0,0,0,0.15)' : 'none',
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="Sign in or sign up" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.15)', marginBottom: 4 }}>
+      {option('signin', 'Sign In')}
+      {option('signup', 'Sign Up')}
+    </div>
   );
 }
 
@@ -373,6 +403,9 @@ function SignIn({ onSignedIn }) {
           <h1 style={s.brand}>GeoAttend</h1>
           <p style={s.sub}>Staff Attendance System</p>
         </div>
+        {!profileStep && (view === 'signin' || view === 'signup') && (
+          <AuthSwitch view={view} onChange={(v) => { setError(''); setInfo(''); setView(v); }} />
+        )}
         {info && !profileStep && view === 'signin' && <div style={s.banner('success')}>{info}</div>}
         {profileStep ? (
           <CompleteGoogleProfile step={profileStep} onDone={onSignedIn} onCancel={() => setProfileStep(null)} />
@@ -424,9 +457,10 @@ function SignIn({ onSignedIn }) {
           </form>
         )}
         {view === 'signin' && !profileStep && (
-          <div style={{ textAlign: 'center', marginTop: 20 }}>
-            <button type="button" style={{ ...s.link, textDecoration: 'none', fontSize: 15 }} onClick={() => { setError(''); setInfo(''); setView('signup'); }}>
-              Don't have an account? Sign Up
+          <div style={{ textAlign: 'center', marginTop: 24 }}>
+            <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, marginBottom: 10 }}>New to GeoAttend?</div>
+            <button type="button" style={s.signUpBtn} onClick={() => { setError(''); setInfo(''); setView('signup'); window.scrollTo(0, 0); }}>
+              Create an Account
             </button>
           </div>
         )}
