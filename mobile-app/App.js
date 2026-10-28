@@ -15,7 +15,7 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import ForgotStaffIdScreen from './src/screens/ForgotStaffIdScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import GoogleProfileScreen from './src/screens/GoogleProfileScreen';
-import { registerForPushNotifications, scheduleCheckInReminder } from './src/services/notifications';
+import { registerForPushNotifications, syncWorkReminders, clearWorkReminders } from './src/services/notifications';
 import { ThemeProvider } from './src/services/theme';
 import { I18nProvider } from './src/services/i18n';
 import { isBiometricAvailable, authenticateWithBiometric, isBiometricEnabled } from './src/services/biometric';
@@ -118,13 +118,24 @@ export default function App() {
         } catch {}
 
         setIsLoggedIn(true);
-        // These may fail in Expo Go (SDK 53+) but are non-blocking
-        registerForPushNotifications().catch(() => {});
-        scheduleCheckInReminder().catch(() => {});
       }
       setLoading(false);
     });
   }, []);
+
+  // Every sign-in (new or remembered) sets up push + reminders that follow the
+  // institution's real work hours. May fail in Expo Go, never blocks the app.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    registerForPushNotifications()
+      .catch(() => {})
+      .finally(() => { syncWorkReminders().catch(() => {}); });
+  }, [isLoggedIn]);
+
+  const handleLogout = () => {
+    clearWorkReminders();
+    setIsLoggedIn(false);
+  };
 
   if (loading) return null;
 
@@ -138,7 +149,7 @@ export default function App() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {isLoggedIn ? (
             <Stack.Screen name="Main">
-              {() => <MainTabs onLogout={() => setIsLoggedIn(false)} />}
+              {() => <MainTabs onLogout={handleLogout} />}
             </Stack.Screen>
           ) : (
             <>

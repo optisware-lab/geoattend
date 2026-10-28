@@ -40,3 +40,107 @@ input, select, textarea {
   main table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
+
+/* ---------- Shared building blocks (used with inline styles) ---------- */
+:root {
+  --ga-navy: #1a5276;
+  --ga-navy-dark: #154360;
+  --ga-green: #27ae60;
+  --ga-orange: #f39c12;
+  --ga-red: #e74c3c;
+  --ga-blue: #3498db;
+  --ga-text: #2c3e50;
+  --ga-muted: #7f8c8d;
+  --ga-faint: #95a5a6;
+  --ga-border: #e6e9ee;
+  --ga-card-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 2px 8px rgba(16, 24, 40, 0.06);
+}
+
+.spin { animation: spin 1s linear infinite; }
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--ga-blue);
+  outline-offset: 2px;
+}
+
+button:disabled { cursor: not-allowed; }
+
+.ga-card {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: var(--ga-card-shadow);
+}
+
+.ga-hover { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.ga-hover:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(16, 24, 40, 0.10); }
+
+.ga-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 16px; border-radius: 9px; font-size: 13.5px; font-weight: 600;
+  background: #fff; color: var(--ga-text); border: 1px solid var(--ga-border);
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+  white-space: nowrap;
+}
+.ga-btn:hover:not(:disabled) { background: #f6f8fa; border-color: #d5dae1; }
+.ga-btn:disabled { opacity: 0.55; }
+.ga-btn-primary { background: var(--ga-navy); color: #fff; border-color: var(--ga-navy); }
+.ga-btn-primary:hover:not(:disabled) { background: var(--ga-navy-dark); border-color: var(--ga-navy-dark); }
+.ga-btn-green { background: var(--ga-green); color: #fff; border-color: var(--ga-green); }
+.ga-btn-green:hover:not(:disabled) { background: #219150; border-color: #219150; }
+.ga-btn-red { background: #fff; color: var(--ga-red); border-color: #f5c6cb; }
+.ga-btn-red:hover:not(:disabled) { background: #fdecea; border-color: #f1a9a0; }
+.ga-btn-sm { padding: 6px 11px; font-size: 12px; border-radius: 7px; }
+
+.ga-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  background: #fff; color: var(--ga-muted); border: 1px solid var(--ga-border);
+  transition: all 0.15s ease;
+}
+.ga-chip:hover { border-color: #c9d0d8; color: var(--ga-text); }
+.ga-chip.is-active { background: var(--ga-navy); color: #fff; border-color: var(--ga-navy); }
+.ga-chip .ga-chip-count {
+  min-width: 20px; padding: 0 6px; border-radius: 999px; font-size: 11px; line-height: 18px;
+  background: rgba(0, 0, 0, 0.06); text-align: center;
+}
+.ga-chip.is-active .ga-chip-count { background: rgba(255, 255, 255, 0.22); }
+
+.ga-input {
+  padding: 9px 12px; border: 1px solid var(--ga-border); border-radius: 9px;
+  font-size: 13.5px; background: #fff; color: var(--ga-text);
+}
+
+.ga-table { width: 100%; border-collapse: collapse; }
+.ga-table th {
+  padding: 12px 14px; text-align: left; font-size: 11px; font-weight: 700; color: var(--ga-muted);
+  text-transform: uppercase; letter-spacing: 0.4px; border-bottom: 1px solid var(--ga-border); background: #fafbfc;
+}
+.ga-table td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid #f2f4f6; vertical-align: middle; }
+.ga-table tbody tr { transition: background 0.12s ease; }
+.ga-table tbody tr:hover { background: #f8fafc; }
+
+.ga-progress { height: 8px; border-radius: 999px; background: #edf0f3; overflow: hidden; }
+.ga-progress > div { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+
+.ga-live-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--ga-green); display: inline-block;
+  box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.6); animation: ga-pulse 2s infinite;
+}
+@keyframes ga-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(39, 174, 96, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+}
+
+.ga-skeleton {
+  background: linear-gradient(90deg, #eef1f4 25%, #f6f8fa 50%, #eef1f4 75%);
+  background-size: 200% 100%; animation: ga-shimmer 1.2s infinite; border-radius: 8px;
+}
+@keyframes ga-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.ga-nav-link:hover { color: #fff !important; background: rgba(255, 255, 255, 0.06); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ga-hover, .ga-live-dot, .ga-skeleton, .spin { animation: none; transition: none; }
+  .ga-hover:hover { transform: none; }
+}

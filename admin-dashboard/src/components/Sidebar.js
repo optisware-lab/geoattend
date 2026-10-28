@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield, FiDollarSign } from 'react-icons/fi';
+import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield, FiDollarSign, FiCreditCard } from 'react-icons/fi';
+import { getLeaveStats } from '../services/api';
+import { formatDate } from '../utils/format';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: FiHome },
@@ -10,7 +12,7 @@ const navItems = [
   { path: '/leave', label: 'Leave', icon: FiCalendar },
   { path: '/analytics', label: 'Analytics', icon: FiTrendingUp },
   { path: '/audit', label: 'Audit Log', icon: FiShield },
-  { path: '/billing', label: 'Billing', icon: FiShield },
+  { path: '/billing', label: 'Billing', icon: FiCreditCard },
   { path: '/settings', label: 'Settings', icon: FiSettings },
 ];
 
@@ -71,7 +73,7 @@ const styles = {
   },
   logoIcon: { fontSize: '24px' },
   logoText: { fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px' },
-  nav: { flex: 1, padding: '16px 0' },
+  nav: { flex: 1, padding: '12px 0', overflowY: 'auto' },
   link: {
     display: 'flex',
     alignItems: 'center',
@@ -112,6 +114,19 @@ export default function Sidebar({ user, onLogout }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const location = useLocation();
+  const [pendingLeave, setPendingLeave] = useState(0);
+  const isAdmin = ['admin', 'super_admin'].includes((user?.role || '').toLowerCase());
+
+  // Keep the Leave badge current without a page reload
+  const loadBadges = useCallback(() => {
+    if (!isAdmin) return;
+    getLeaveStats().then((r) => setPendingLeave(Number(r.data?.pending || 0))).catch(() => {});
+  }, [isAdmin]);
+  useEffect(() => { loadBadges(); }, [loadBadges, location.pathname]);
+  useEffect(() => {
+    const id = setInterval(loadBadges, 120000);
+    return () => clearInterval(id);
+  }, [loadBadges]);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -158,7 +173,10 @@ export default function Sidebar({ user, onLogout }) {
       <aside style={sidebarStyle}>
         <div style={styles.logo}>
           <FiMapPin style={styles.logoIcon} />
-          <span style={styles.logoText}>GeoAttend</span>
+          <div>
+            <div style={styles.logoText}>GeoAttend</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{formatDate(new Date())}</div>
+          </div>
         </div>
 
         <nav style={styles.nav}>
@@ -167,13 +185,19 @@ export default function Sidebar({ user, onLogout }) {
               key={path}
               to={path}
               end={path === '/'}
+              className="ga-nav-link"
               style={({ isActive }) => ({
                 ...styles.link,
                 ...(isActive ? styles.activeLink : {}),
               })}
             >
               <Icon size={18} />
-              {label}
+              <span style={{ flex: 1 }}>{label}</span>
+              {path === '/leave' && pendingLeave > 0 && (
+                <span title={`${pendingLeave} waiting for review`} style={{ minWidth: 20, padding: '1px 7px', borderRadius: 999, background: '#f39c12', color: '#fff', fontSize: 11, fontWeight: 700, textAlign: 'center' }}>
+                  {pendingLeave}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

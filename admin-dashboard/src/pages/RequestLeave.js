@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { requestLeave, getMyLeaves, cancelLeave } from '../services/api';
+import { formatDateRange } from '../utils/format';
 
 const styles = {
   container: { maxWidth: 860, margin: '0 auto' },
@@ -94,7 +95,7 @@ export default function RequestLeave() {
           <tbody>
             {myLeaves.map(l => (
               <tr key={l.id}>
-                <td style={styles.td}>{new Date(l.start_date).toLocaleDateString()} - {new Date(l.end_date).toLocaleDateString()}</td>
+                <td style={styles.td}>{formatDateRange(l.start_date, l.end_date)}</td>
                 <td style={styles.td}>{l.leave_type}</td>
                 <td style={styles.td}>{l.reason || '-'}</td>
                 <td style={styles.td}>{l.status}</td>

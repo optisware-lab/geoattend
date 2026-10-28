@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { requestLeave, getMyLeaves, cancelLeave } from '../services/api';
+import { formatDate, formatDateRange, daysInclusive, toInputDate } from '../services/format';
 
 export default function LeaveRequestScreen() {
   const [leaveType, setLeaveType] = useState('personal');
@@ -46,8 +47,9 @@ export default function LeaveRequestScreen() {
     try {
       await requestLeave({
         leaveType,
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
+        // Local calendar day, so the date never shifts because of time zones
+        startDate: toInputDate(startDate),
+        endDate: toInputDate(endDate),
         reason,
       });
       Alert.alert('Success', 'Leave request submitted. Your admin will be notified.');
@@ -95,14 +97,14 @@ export default function LeaveRequestScreen() {
         <Text style={styles.label}>Start Date</Text>
         <TouchableOpacity style={styles.dateBtn} onPress={() => openPicker('start')}>
           <Text style={startDate ? styles.dateTxt : styles.datePlaceholder}>
-            {startDate ? startDate.toDateString() : 'Pick start date'}
+            {startDate ? formatDate(startDate) : 'Pick start date'}
           </Text>
         </TouchableOpacity>
 
         <Text style={styles.label}>End Date</Text>
         <TouchableOpacity style={styles.dateBtn} onPress={() => openPicker('end')}>
           <Text style={endDate ? styles.dateTxt : styles.datePlaceholder}>
-            {endDate ? endDate.toDateString() : 'Pick end date'}
+            {endDate ? `${formatDate(endDate)}${startDate ? ` (${daysInclusive(startDate, endDate)} day${daysInclusive(startDate, endDate) === 1 ? '' : 's'})` : ''}` : 'Pick end date'}
           </Text>
         </TouchableOpacity>
 
@@ -139,7 +141,7 @@ export default function LeaveRequestScreen() {
           <View key={l.id} style={styles.leaveRow}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: '700', fontSize: 14 }}>
-                {new Date(l.start_date).toLocaleDateString()} – {new Date(l.end_date).toLocaleDateString()}
+                {formatDateRange(l.start_date, l.end_date)}
               </Text>
               <Text style={{ color: '#666', fontSize: 12, marginTop: 2 }}>
                 {l.leave_type.charAt(0).toUpperCase() + l.leave_type.slice(1)}

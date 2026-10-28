@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { FiTrendingUp, FiUsers, FiClock, FiAlertTriangle } from 'react-icons/fi';
 import { getAttendanceTrends, getTopAbsentees, getDepartmentAnalytics, getOvertimeSummary } from '../services/api';
+import { formatDate } from '../utils/format';
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' },
@@ -80,7 +81,7 @@ export default function Analytics() {
           <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
             {trends.slice(-14).map((t, i) => (
               <div key={i} style={styles.trendRow}>
-                <span style={{ fontSize: '12px', color: '#7f8c8d', width: '80px' }}>{new Date(t.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
+                <span style={{ fontSize: '12px', color: '#7f8c8d', width: '104px', whiteSpace: 'nowrap' }}>{formatDate(t.date)}</span>
                 <div style={{ flex: 1, margin: '0 12px' }}>
                   <div style={styles.bar(t.rate, '#27ae60')}>
                     <div style={styles.barFill(t.rate, '#27ae60')} />

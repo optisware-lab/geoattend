@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { sendExpoPushNotifications } = require('../services/pushNotificationService');
+const { formatDateRange } = require('../utils/dateFormat');
 let prisma;
 try {
   prisma = require('../prismaClient');
@@ -68,7 +69,7 @@ function notifyRequesterOfReview(id, status, reviewNote) {
     return sendExpoPushNotifications([{
       to: push_token,
       title: `Leave Request ${statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}`,
-      body: `Hi ${first_name}, your ${leave_type} leave (${new Date(start_date).toLocaleDateString()} - ${new Date(end_date).toLocaleDateString()}) has been ${statusLabel}.${reviewNote ? ` Note: ${reviewNote}` : ''}`,
+      body: `Hi ${first_name}, your ${leave_type} leave (${formatDateRange(start_date, end_date)}) has been ${statusLabel}.${reviewNote ? ` Note: ${reviewNote}` : ''}`,
       data: { type: 'leave_review', leaveId: id, status },
     }]).catch(() => {});
   }).catch(() => {});

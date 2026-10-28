@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const excel4node = require('excel4node');
 const PDFDocument = require('pdfkit');
+const { formatDate } = require('../utils/dateFormat');
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -327,7 +328,7 @@ exports.exportExcel = async (req, res) => {
 
     result.rows.forEach((row, i) => {
       const r = i + 2;
-      ws.cell(r, 1).string(row.date ? new Date(row.date).toLocaleDateString() : '');
+      ws.cell(r, 1).string(formatDate(row.date));
       ws.cell(r, 2).string(row.staff_id || '');
       ws.cell(r, 3).string(row.first_name || '');
       ws.cell(r, 4).string(row.last_name || '');
@@ -399,7 +400,7 @@ exports.exportPDF = async (req, res) => {
 
     // Table header
     const tableTop = doc.y;
-    const colWidths = [55, 55, 85, 70, 55, 55, 45, 40];
+    const colWidths = [68, 55, 78, 64, 55, 55, 45, 40];
     const colHeaders = ['Date', 'Staff ID', 'Name', 'Department', 'Check In', 'Check Out', 'Method', 'Status'];
 
     doc.fontSize(8).font('Helvetica-Bold');
@@ -424,7 +425,7 @@ exports.exportPDF = async (req, res) => {
       x = 40;
       const status = !row.check_in_time ? 'Absent' : row.is_late ? 'Late' : 'Present';
       const cells = [
-        row.date ? new Date(row.date).toLocaleDateString() : '-',
+        formatDate(row.date, '-'),
         row.staff_id || '',
         `${row.first_name} ${row.last_name}`,
         row.department || '-',
@@ -443,7 +444,7 @@ exports.exportPDF = async (req, res) => {
     });
 
     // Footer
-    doc.fontSize(8).text(`Generated on ${new Date().toLocaleString()}`, 40, 780, { align: 'center' });
+    doc.fontSize(8).text(`Generated on ${formatDate(new Date())} ${new Date().toLocaleTimeString()}`, 40, 780, { align: 'center' });
 
     doc.end();
   } catch (err) {

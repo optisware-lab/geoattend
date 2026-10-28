@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { FiShield, FiFilter, FiClock } from 'react-icons/fi';
 import { getAuditLogs, getSchedulerStatus } from '../services/api';
+import { formatDateTime } from '../utils/format';
 
 const actionLabels = {
   create_staff: 'Created Member',
@@ -102,7 +103,7 @@ export default function AuditLog() {
                 <div style={styles.logMeta}>
                   By: {log.performer_first_name ? `${log.performer_first_name} ${log.performer_last_name}` : log.performed_by === 'system' ? 'System (Automated)' : 'Unknown'}
                   {' | '}
-                  {new Date(log.created_at).toLocaleString()}
+                  {formatDateTime(log.created_at)}
                   {log.ip_address && ` | IP: ${log.ip_address}`}
                 </div>
                 {log.details && (

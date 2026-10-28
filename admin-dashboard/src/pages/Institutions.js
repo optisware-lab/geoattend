@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
-import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
+import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield, FiHome, FiCheckCircle, FiClock, FiAlertTriangle, FiPlusCircle } from 'react-icons/fi';
+import { PageHeader, StatCard } from '../components/ui';
+import { formatDate, timeAgo } from '../utils/format';
 import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution } from '../services/api';
 
 const styles = {
@@ -8,8 +11,8 @@ const styles = {
   title: { fontSize: '24px', fontWeight: '700' },
   searchBox: {
     display: 'flex', alignItems: 'center', gap: '8px',
-    background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px',
-    padding: '8px 14px', width: '320px', marginBottom: '16px',
+    background: '#fff', border: '1px solid #e0e0e0', borderRadius: '10px',
+    padding: '9px 14px', width: '100%', maxWidth: '380px',
   },
   searchInput: { border: 'none', flex: 1, fontSize: '14px', outline: 'none' },
   table: { width: '100%', background: '#fff', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.06)', borderCollapse: 'collapse' },
@@ -73,7 +76,41 @@ function daysRemaining(dateStr) {
   return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
 
+function remainingFor(inst) {
+  if (inst.subscription_status === 'trialing') return daysRemaining(inst.subscription_trial_end);
+  if (inst.subscription_status === 'active') return daysRemaining(inst.subscription_period_end);
+  return null;
+}
+
+const STATUS_FILTERS = [
+  { key: '', label: 'All' },
+  { key: 'active', label: 'Paying' },
+  { key: 'trialing', label: 'On trial' },
+  { key: 'ending', label: 'Ending in 7 days' },
+  { key: 'past_due', label: 'Overdue' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+const SORTS = {
+  newest: (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
+  name: (a, b) => (a.name || '').localeCompare(b.name || ''),
+  staff: (a, b) => Number(b.staff_count || 0) - Number(a.staff_count || 0),
+  ending: (a, b) => (remainingFor(a) ?? 9999) - (remainingFor(b) ?? 9999),
+};
+
+function matchesStatus(inst, key) {
+  if (!key) return true;
+  if (key === 'ending') {
+    const r = remainingFor(inst);
+    return r !== null && r <= 7;
+  }
+  return (inst.subscription_status || 'cancelled') === key;
+}
+
 export default function Institutions() {
+  const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
   const [institutions, setInstitutions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -92,14 +129,33 @@ export default function Institutions() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return institutions;
-    return institutions.filter(i =>
-      (i.name || '').toLowerCase().includes(q) ||
-      (i.institution_code || '').toLowerCase().includes(q) ||
-      (i.city || '').toLowerCase().includes(q) ||
-      (i.region || '').toLowerCase().includes(q)
-    );
-  }, [institutions, search]);
+    return institutions
+      .filter(i => matchesStatus(i, statusFilter))
+      .filter(i => !q ||
+        (i.name || '').toLowerCase().includes(q) ||
+        (i.institution_code || '').toLowerCase().includes(q) ||
+        (i.city || '').toLowerCase().includes(q) ||
+        (i.region || '').toLowerCase().includes(q))
+      .sort(SORTS[sortBy]);
+  }, [institutions, search, statusFilter, sortBy]);
+
+  const overview = useMemo(() => {
+    const o = { total: institutions.length, members: 0, active: 0, trialing: 0, ending: 0, overdue: 0, newThisMonth: 0 };
+    const now = new Date();
+    institutions.forEach((i) => {
+      o.members += Number(i.staff_count || 0);
+      if (i.subscription_status === 'active') o.active += 1;
+      if (i.subscription_status === 'trialing') o.trialing += 1;
+      if (i.subscription_status === 'past_due') o.overdue += 1;
+      const r = remainingFor(i);
+      if (r !== null && r <= 7) o.ending += 1;
+      const c = i.created_at ? new Date(i.created_at) : null;
+      if (c && c.getMonth() === now.getMonth() && c.getFullYear() === now.getFullYear()) o.newThisMonth += 1;
+    });
+    return o;
+  }, [institutions]);
+
+  const countFor = (key) => institutions.filter(i => matchesStatus(i, key)).length;
 
   const copyText = async (text) => {
     try {
@@ -252,20 +308,51 @@ export default function Institutions() {
 
   return (
     <div>
-      <div style={styles.header}>
-        <h1 style={styles.title}>All Institutions ({institutions.length})</h1>
+      <PageHeader
+        title="Institutions"
+        subtitle={`${overview.total} institutions · ${overview.members} member accounts · ${overview.newThisMonth} joined this month`}
+        actions={<button type="button" className="ga-btn ga-btn-primary" onClick={() => navigate('/institutions/new')}><FiPlusCircle size={14} /> New institution</button>}
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 18 }}>
+        <StatCard label="Institutions" value={loading ? '–' : overview.total} hint={`${overview.members} members in total`} icon={FiHome} color="#3498db" onClick={() => setStatusFilter('')} />
+        <StatCard label="Paying" value={loading ? '–' : overview.active} hint="Active subscriptions" icon={FiCheckCircle} color="#27ae60" onClick={() => setStatusFilter('active')} />
+        <StatCard label="On trial" value={loading ? '–' : overview.trialing} hint="Free trial running" icon={FiClock} color="#8e44ad" onClick={() => setStatusFilter('trialing')} />
+        <StatCard label="Ending soon" value={loading ? '–' : overview.ending} hint="Trial or plan ends within 7 days" icon={FiAlertTriangle} color="#f39c12" onClick={() => { setStatusFilter('ending'); setSortBy('ending'); }} />
+        <StatCard label="Overdue" value={loading ? '–' : overview.overdue} hint="Payment past due" icon={FiAlertTriangle} color="#e74c3c" onClick={() => setStatusFilter('past_due')} />
       </div>
 
-      <div style={styles.searchBox}>
-        <FiSearch size={16} color="#95a5a6" />
-        <input
-          style={styles.searchInput}
-          placeholder="Search by name, code, city or region..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        {STATUS_FILTERS.map(f => (
+          <button key={f.key || 'all'} type="button" className={`ga-chip${statusFilter === f.key ? ' is-active' : ''}`} onClick={() => setStatusFilter(f.key)}>
+            {f.label} <span className="ga-chip-count">{countFor(f.key)}</span>
+          </button>
+        ))}
       </div>
 
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+        <div style={styles.searchBox}>
+          <FiSearch size={16} color="#95a5a6" />
+          <input
+            style={styles.searchInput}
+            placeholder="Search by name, code, city or region..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            aria-label="Search institutions"
+          />
+        </div>
+        <label style={{ fontSize: 13, color: '#7f8c8d', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Sort
+          <select className="ga-input" value={sortBy} onChange={e => setSortBy(e.target.value)} style={{ padding: '7px 10px' }}>
+            <option value="newest">Newest first</option>
+            <option value="name">Name (A–Z)</option>
+            <option value="staff">Most members</option>
+            <option value="ending">Ending soonest</option>
+          </select>
+        </label>
+      </div>
+
+      <div style={{ overflowX: 'auto', borderRadius: 12 }}>
       <table style={styles.table}>
         <thead>
           <tr>
@@ -283,11 +370,7 @@ export default function Institutions() {
         <tbody>
           {filtered.map(inst => {
             const subColor = SUBSCRIPTION_COLORS[inst.subscription_status] || SUBSCRIPTION_COLORS.cancelled;
-            const remaining = inst.subscription_status === 'trialing'
-              ? daysRemaining(inst.subscription_trial_end)
-              : inst.subscription_status === 'active'
-                ? daysRemaining(inst.subscription_period_end)
-                : null;
+            const remaining = remainingFor(inst);
 
             return (
               <tr key={inst.id}>
@@ -328,12 +411,15 @@ export default function Institutions() {
                     {(inst.subscription_status || 'none').replace('_', ' ')}
                   </span>
                   {remaining !== null && (
-                    <div style={{ color: '#95a5a6', fontSize: '11px', marginTop: '4px' }}>
+                    <div style={{ color: remaining <= 3 ? '#e74c3c' : remaining <= 7 ? '#f39c12' : '#95a5a6', fontWeight: remaining <= 7 ? 700 : 400, fontSize: '11px', marginTop: '4px' }}>
                       {remaining} day(s) left
                     </div>
                   )}
                 </td>
-                <td style={styles.td}>{inst.created_at ? new Date(inst.created_at).toLocaleDateString() : '-'}</td>
+                <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
+                  {formatDate(inst.created_at)}
+                  {inst.created_at && <div style={{ color: '#95a5a6', fontSize: '11px', marginTop: '2px' }}>{timeAgo(inst.created_at)}</div>}
+                </td>
                 <td style={styles.td}>
                   {Number(inst.super_admin_count) > 0 ? (
                     <span style={{ color: '#95a5a6', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '4px' }} title="Holds the super admin account">
@@ -351,8 +437,12 @@ export default function Institutions() {
           {!loading && filtered.length === 0 && (
             <tr><td colSpan={9} style={styles.empty}>No institutions found</td></tr>
           )}
+          {loading && (
+            <tr><td colSpan={9} style={styles.empty}>Loading institutions...</td></tr>
+          )}
         </tbody>
       </table>
+      </div>
 
       {deleteTarget && (
         <div style={styles.modalOverlay}>

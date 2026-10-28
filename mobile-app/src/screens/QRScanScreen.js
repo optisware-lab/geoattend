@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Alert, TouchableOpacity, SafeAreaView, ActivityIndicator,
 } from 'react-native';
@@ -27,12 +27,16 @@ async function getRequiredLocation() {
   return location;
 }
 
+// Set by the screen: takes staff back to Home after a successful check-in
+let goHomeAfterCheckIn = null;
+
 function showCheckInResult(result) {
   Alert.alert(
     'Check-In Successful',
     result.isLate
       ? 'Checked in via QR code. You are marked as LATE.'
-      : 'Checked in via QR code successfully!'
+      : 'Checked in via QR code successfully!',
+    [{ text: 'OK', onPress: () => goHomeAfterCheckIn?.() }]
   );
 }
 
@@ -137,8 +141,13 @@ async function checkInWithServerDecode(asset) {
   showCheckInResult(result);
 }
 
-export default function QRScanScreen() {
+export default function QRScanScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
+
+  useEffect(() => {
+    goHomeAfterCheckIn = () => navigation?.navigate?.('Home');
+    return () => { goHomeAfterCheckIn = null; };
+  }, [navigation]);
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
 

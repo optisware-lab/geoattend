@@ -135,6 +135,8 @@ export const checkOut = (data) => api.post('/attendance/check-out', data);
 export const getTodayStatus = () => api.get('/attendance/today');
 export const getMyAttendance = (params) => api.get('/attendance/my-attendance', { params });
 export const getWeeklyStats = () => api.get('/attendance/weekly-stats');
+// Work hours and working days set by the admin
+export const getAttendanceRules = () => api.get('/institutions/rules');
 
 // Geofence
 export const postGeofenceEvent = (data) => api.post('/geofence/event', data);

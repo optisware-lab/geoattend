@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { IoLocation, IoQrCode, IoCalendar, IoPerson, IoImageOutline } from 'react-icons/io5';
 import {
-  session, getTodayStatus, getWeeklyStats, getMyAttendance, getProfile,
+  session, getTodayStatus, getWeeklyStats, getMyAttendance, getProfile, getRules,
   checkIn, checkOut, checkInFromImage, webDeviceId, errorMessage,
 } from './staffApi';
+import { formatDate, formatDateLong, formatDuration, relativeDay } from '../utils/format';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 
 // Same palette as the mobile app (mobile-app/src/services/theme.js)
@@ -83,7 +84,7 @@ function getLocation() {
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
       (err) => reject(new Error(err.code === 1
         ? 'Location is blocked. Allow location for this site (iPhone: Settings > Privacy & Security > Location Services > Safari Websites > While Using), then try again.'
         : 'Could not get your location. Turn on Location/GPS and try again.')),
@@ -104,8 +105,17 @@ function greetingFor(date) {
 
 // ---------- Check-In tab ----------
 
-function CheckInTab({ user, institution, status, record, stats, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message }) {
-  const now = new Date();
+function clockToday(hhmmss, base) {
+  if (!hhmmss) return null;
+  const [h, m] = String(hhmmss).split(':').map(Number);
+  if (Number.isNaN(h)) return null;
+  const d = new Date(base);
+  d.setHours(h, m || 0, 0, 0);
+  return d;
+}
+
+function CheckInTab({ user, institution, status, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message }) {
+  const [confirmOut, setConfirmOut] = useState(false);
   const radius = institution?.geofenceRadius || 200;
   const distance = location && institution?.latitude != null
     ? distanceMeters(location.latitude, location.longitude, Number(institution.latitude), Number(institution.longitude))
@@ -113,15 +123,118 @@ function CheckInTab({ user, institution, status, record, stats, location, locati
   const isWithin = distance != null && distance <= radius;
   const outside = distance != null && !isWithin;
 
+  const workStart = clockToday(rules?.work_start_time, now);
+  const workEnd = clockToday(rules?.work_end_time, now);
+  const checkedInAt = record?.check_in_time ? new Date(record.check_in_time) : null;
+  const checkedOutAt = record?.check_out_time ? new Date(record.check_out_time) : null;
+  const workedMs = checkedInAt ? (checkedOutAt || now) - checkedInAt : 0;
+  const earlyOut = status === 'checked_in' && workEnd && now < workEnd;
+
+  // The check-out button asks once more, so a stray tap never ends the day
+  useEffect(() => {
+    if (!confirmOut) return undefined;
+    const id = setTimeout(() => setConfirmOut(false), 5000);
+    return () => clearTimeout(id);
+  }, [confirmOut]);
+
+  const handleCheckOut = () => {
+    if (!confirmOut) { setConfirmOut(true); return; }
+    setConfirmOut(false);
+    onCheckOut();
+  };
+
+  let checkInHint = 'Tap to check in with GPS';
+  if (locationError) checkInHint = 'Turn on location to check in';
+  else if (distance == null) checkInHint = 'Finding your location...';
+  else if (outside) checkInHint = `You are ${distance - radius}m too far. It unlocks when you arrive.`;
+
   return (
     <div style={st.scroll}>
       <div style={st.header}>
         <div style={st.greeting}>{greetingFor(now)},</div>
         <div style={st.name}>{user?.firstName || 'Staff'}</div>
-        <div style={st.date}>{now.toLocaleDateString('en-GH', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</div>
+        <div style={st.date}>{formatDateLong(now)}</div>
       </div>
 
       {message && <div style={st.banner(message.type)}>{message.text}</div>}
+
+      <div style={{ marginBottom: 16 }}>
+        {status === 'checked_in' ? (
+          <button type="button" style={st.actionBtn(confirmOut ? '#922b21' : C.red, !!busy)} disabled={!!busy} onClick={handleCheckOut}>
+            <span style={st.actionText}>{busy === 'checkout' ? 'Checking out...' : confirmOut ? 'Tap again to check out' : 'Check Out'}</span>
+            <span style={st.actionSub}>
+              {confirmOut
+                ? (earlyOut ? `Work ends at ${formatTime(workEnd)}. Leaving early?` : 'This ends your day')
+                : `At work for ${formatDuration(workedMs)}`}
+            </span>
+          </button>
+        ) : status === 'checked_out' ? (
+          <button type="button" style={st.actionBtn(C.textMuted, true)} disabled>
+            <span style={st.actionText}>Done for Today</span>
+            <span style={st.actionSub}>You worked {formatDuration(workedMs)}. See you tomorrow!</span>
+          </button>
+        ) : (
+          <button type="button" style={st.actionBtn(C.green, !!busy || outside)} disabled={!!busy || outside} onClick={onCheckIn}>
+            <span style={st.actionText}>{busy === 'checkin' ? 'Checking in...' : 'Check In'}</span>
+            <span style={st.actionSub}>{checkInHint}</span>
+          </button>
+        )}
+      </div>
+
+      <div style={st.card(distance == null ? C.textMuted : isWithin ? C.green : C.red)}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={st.cardLabel}>LOCATION</div>
+          {!locationError && distance != null && (
+            <span style={{ fontSize: 11, color: C.textMuted, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 7, height: 7, borderRadius: 4, background: C.green, display: 'inline-block' }} /> Live
+            </span>
+          )}
+        </div>
+        {locationError ? (
+          <div style={{ ...st.cardDetail, color: '#c0392b' }}>{locationError}</div>
+        ) : distance == null ? (
+          <div style={st.cardDetail}>Getting your location...</div>
+        ) : (
+          <>
+            <div style={{ ...st.cardValue, color: isWithin ? C.green : C.red }}>{isWithin ? 'You are at work' : 'Not at work yet'}</div>
+            <div style={st.cardDetail}>
+              {distance}m from {institution?.name || 'institution'} (allowed: {radius}m)
+              {location?.accuracy ? ` · GPS ±${Math.round(location.accuracy)}m` : ''}
+            </div>
+            {outside && (
+              <div className="ga-progress" style={{ marginTop: 10 }}>
+                <div style={{ width: `${Math.max(4, Math.min(100, (radius / distance) * 100))}%`, background: C.orange }} />
+              </div>
+            )}
+          </>
+        )}
+        <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
+      </div>
+
+      <div style={st.card(C.blue)}>
+        <div style={st.cardLabel}>TODAY</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={st.cardValue}>
+            {status === 'checked_in' ? 'Checked In' : status === 'checked_out' ? 'Checked Out' : status ? 'Not Checked In' : 'Loading...'}
+          </span>
+          {checkedInAt && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: record?.is_late ? '#fef5e7' : '#e8f6ee', color: record?.is_late ? '#b9770e' : '#1e8449' }}>
+              {record?.is_late ? 'LATE' : 'ON TIME'}
+            </span>
+          )}
+        </div>
+        {checkedInAt && (
+          <div style={st.cardDetail}>
+            In {formatTime(checkedInAt)}{checkedOutAt ? ` · Out ${formatTime(checkedOutAt)}` : ''} · {formatDuration(workedMs)}
+          </div>
+        )}
+        {workStart && workEnd && (
+          <div style={{ ...st.cardDetail, color: C.textMuted }}>
+            Work hours {formatTime(workStart)} – {formatTime(workEnd)}
+            {status === 'not_checked_in' && now > workStart ? ' · already started' : ''}
+          </div>
+        )}
+      </div>
 
       {institution?.name && (
         <div style={st.card(C.primary)}>
@@ -132,35 +245,6 @@ function CheckInTab({ user, institution, status, record, stats, location, locati
           )}
         </div>
       )}
-
-      <div style={st.card(distance == null ? C.textMuted : isWithin ? C.green : C.red)}>
-        <div style={st.cardLabel}>LOCATION STATUS</div>
-        {locationError ? (
-          <div style={{ ...st.cardDetail, color: '#c0392b' }}>{locationError}</div>
-        ) : distance == null ? (
-          <div style={st.cardDetail}>Getting your location...</div>
-        ) : (
-          <>
-            <div style={{ ...st.cardValue, color: isWithin ? C.green : C.red }}>{isWithin ? 'Within Geofence' : 'Outside Geofence'}</div>
-            <div style={st.cardDetail}>{distance}m from {institution?.name || 'institution'} ({radius}m radius)</div>
-          </>
-        )}
-        <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
-      </div>
-
-      <div style={st.card(C.blue)}>
-        <div style={st.cardLabel}>TODAY'S STATUS</div>
-        <div style={st.cardValue}>
-          {status === 'checked_in' ? 'Checked In' : status === 'checked_out' ? 'Checked Out' : status ? 'Not Checked In' : 'Loading...'}
-        </div>
-        {record?.check_in_time && (
-          <div style={st.cardDetail}>
-            In: {formatTime(record.check_in_time)}
-            {record.check_out_time && ` | Out: ${formatTime(record.check_out_time)}`}
-            {record.is_late && ' | LATE'}
-          </div>
-        )}
-      </div>
 
       {stats && (
         <div style={st.card()}>
@@ -173,25 +257,6 @@ function CheckInTab({ user, institution, status, record, stats, location, locati
           </div>
         </div>
       )}
-
-      <div style={{ marginTop: 20, marginBottom: 12 }}>
-        {status === 'checked_in' ? (
-          <button type="button" style={st.actionBtn(C.red, !!busy)} disabled={!!busy} onClick={onCheckOut}>
-            <span style={st.actionText}>{busy === 'checkout' ? 'Checking out...' : 'Check Out'}</span>
-            <span style={st.actionSub}>Tap to end your day</span>
-          </button>
-        ) : status === 'checked_out' ? (
-          <button type="button" style={st.actionBtn(C.textMuted, true)} disabled>
-            <span style={st.actionText}>Done for Today</span>
-            <span style={st.actionSub}>See you tomorrow!</span>
-          </button>
-        ) : (
-          <button type="button" style={st.actionBtn(C.green, !!busy || outside)} disabled={!!busy || outside} onClick={onCheckIn}>
-            <span style={st.actionText}>{busy === 'checkin' ? 'Checking in...' : 'Check In'}</span>
-            <span style={st.actionSub}>{outside ? `Move within ${radius}m to check in` : 'Tap to check in with GPS'}</span>
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -343,14 +408,15 @@ function HistoryTab({ active }) {
     <div style={st.scroll}>
       <div style={{ padding: '10px 0 16px' }}>
         <h1 style={st.title}>Attendance History</h1>
-        <div style={st.subtitle}>{total} records</div>
+        <div style={st.subtitle}>{total} days recorded</div>
       </div>
       {error && <div style={st.banner('error')}>{error}</div>}
       {records.map((r) => {
         const date = new Date(r.date);
-        const hours = r.check_in_time && r.check_out_time
-          ? ((new Date(r.check_out_time) - new Date(r.check_in_time)) / 3600000).toFixed(1)
+        const worked = r.check_in_time && r.check_out_time
+          ? formatDuration(new Date(r.check_out_time) - new Date(r.check_in_time))
           : null;
+        const rel = relativeDay(r.date);
         return (
           <div key={r.id} style={{ ...st.card(), display: 'flex', gap: 14, alignItems: 'center', padding: 14 }}>
             <div style={{ width: 56, flexShrink: 0, textAlign: 'center', background: C.primary, color: '#fff', borderRadius: 10, padding: '8px 0' }}>
@@ -366,7 +432,10 @@ function HistoryTab({ active }) {
                 {r.is_late && <span style={{ background: '#fdedec', color: C.red, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8 }}>LATE</span>}
               </div>
               <div style={{ ...st.cardDetail, marginTop: 4 }}>
-                {(r.check_in_method || 'gps').replace('_', ' ').toUpperCase()}{hours ? ` · ${hours}h` : ''}
+                {rel ? `${rel} · ` : ''}{formatDate(r.date)}{worked ? ` · ${worked}` : ''}
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>
+                {(r.check_in_method || 'gps').replace('_', ' ').toUpperCase()}
               </div>
             </div>
           </div>
@@ -464,6 +533,18 @@ export default function StaffHome({ onSignOut }) {
   const [locationError, setLocationError] = useState('');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
+  const [rules, setRules] = useState(null);
+  const [now, setNow] = useState(() => new Date());
+
+  // Keeps the "at work for" clock and greeting current
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    getRules().then(({ data }) => { if (data && typeof data === 'object') setRules(data); }).catch(() => {});
+  }, []);
 
   const handleAuthError = useCallback((err) => {
     if (err?.response?.status === 401) {
@@ -502,10 +583,38 @@ export default function StaffHome({ onSignOut }) {
     refreshLocation();
   }, [loadToday, refreshLocation]);
 
+  // Follow the phone's location while the check-in tab is open, so the
+  // Check In button unlocks by itself the moment you reach work.
+  useEffect(() => {
+    if (tab !== 'home' || !navigator.geolocation?.watchPosition) return undefined;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        setLocationError('');
+        setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy });
+      },
+      () => { /* the one-off refresh above already explains location errors */ },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, [tab]);
+
+  // Coming back to the page (or the phone waking up) refreshes today's status,
+  // e.g. after the automatic evening check-out.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      setNow(new Date());
+      loadToday();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadToday]);
+
   const afterCheckIn = (data, how) => {
     setMessage({ type: 'success', text: data.isLate ? `Checked in ${how}. You are marked as LATE.` : `Checked in ${how}. Have a good day!` });
     setStatus('checked_in');
     setRecord(data.record || null);
+    setTab('home'); // show the result on the main screen, whichever way they checked in
     getWeeklyStats().then(({ data: s }) => setStats(s.month)).catch(() => {});
   };
 
@@ -617,7 +726,7 @@ export default function StaffHome({ onSignOut }) {
     <div style={st.page}>
       {tab === 'home' && (
         <CheckInTab
-          user={user} institution={institution} status={status} record={record} stats={stats}
+          user={user} institution={institution} status={status} record={record} stats={stats} rules={rules} now={now}
           location={location} locationError={locationError} onRefreshLocation={refreshLocation}
           onCheckIn={doGpsCheckIn} onCheckOut={doCheckOut} busy={busy} message={message}
         />

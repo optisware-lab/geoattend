@@ -9,7 +9,7 @@ function resolveApiBaseUrl() {
   return envUrl || 'https://geoattend-api-pc49.onrender.com/api';
 }
 
-const API_BASE_URL = resolveApiBaseUrl();
+export const API_BASE_URL = resolveApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,

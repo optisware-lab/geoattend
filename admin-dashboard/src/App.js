@@ -20,11 +20,12 @@ import Analytics from './pages/Analytics';
 import AuditLog from './pages/AuditLog';
 import Payroll from './pages/Payroll';
 import Sidebar from './components/Sidebar';
+import { useIsMobile } from './components/ui';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
@@ -48,7 +49,7 @@ function App() {
   // Only declare mainStyle ONCE
   const mainStyle = useMemo(() => ({
     flex: 1,
-    padding: isMobile ? '60px 12px 16px' : '24px',
+    padding: isMobile ? '64px 14px 20px' : '28px 32px',
     marginLeft: isMobile ? 0 : '250px',
     minHeight: '100vh',
     width: isMobile ? '100%' : undefined,

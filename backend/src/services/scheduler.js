@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const pool = require('../config/database');
 const { sendAbsenceAlert, sendDailySummary, sendWeeklySummary, sendAutoSuspendNotice } = require('./emailService');
 const { sendAbsentAlert } = require('./smsService');
+const { formatDate } = require('../utils/dateFormat');
 
 // ─── AUTO CHECK-OUT ─────────────────────────────────────────────────────────
 // Runs every day at the institution's work_end_time (default: 5:30 PM)
@@ -171,7 +172,7 @@ async function sendWeeklyReport() {
       `, [inst.id]);
 
       const data = weekData.rows.map(d => ({
-        date: new Date(d.date).toLocaleDateString(),
+        date: formatDate(d.date),
         present: parseInt(d.present),
         late: parseInt(d.late),
         absent: total - parseInt(d.present),

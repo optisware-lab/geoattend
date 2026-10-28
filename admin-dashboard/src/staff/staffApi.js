@@ -64,6 +64,8 @@ export const getTodayStatus = () => api.get('/attendance/today');
 export const getWeeklyStats = () => api.get('/attendance/weekly-stats');
 export const getMyAttendance = (params) => api.get('/attendance/my-attendance', { params });
 export const getProfile = () => api.get('/auth/profile');
+/** Work hours and working days set by the admin. */
+export const getRules = () => api.get('/institutions/rules');
 export const checkIn = (data) => api.post('/attendance/check-in', data);
 export const checkOut = (data) => api.post('/attendance/check-out', data);
 export const checkInFromImage = (formData) => api.post('/attendance/check-in-from-image', formData);

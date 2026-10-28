@@ -36,3 +36,21 @@ export function calculateDistance(lat1, lon1, lat2, lon2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
 }
+
+/**
+ * Follows the phone's position while a screen is open. Calls onChange with
+ * { latitude, longitude, accuracy } and returns a function that stops it.
+ */
+export async function watchLocation(onChange) {
+  const hasPermission = await requestLocationPermission();
+  if (!hasPermission) return () => {};
+  const sub = await Location.watchPositionAsync(
+    { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 },
+    (pos) => onChange({
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      accuracy: pos.coords.accuracy,
+    })
+  );
+  return () => sub.remove();
+}
