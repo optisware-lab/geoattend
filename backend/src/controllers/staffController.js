@@ -1,17 +1,18 @@
 const bcrypt = require('bcryptjs');
+const { normalizeGender } = require('../utils/gender');
 const { v4: uuidv4 } = require('uuid');
 const { generateQRCode } = require('../utils/qrcode');
 
 exports.getAllStaff = async (req, res) => {
   try {
-    const { page = 1, limit = 50, search, department, status } = req.query;
+    const { page = 1, limit = 50, search, department, status, gender } = req.query;
     const offset = (page - 1) * limit;
     const institutionId = req.user.institution_id;
 
     let query = `
       SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
              s.department, s.position, s.role, s.is_active, s.profile_photo_url, s.created_at,
-             s.hourly_rate,
+             s.hourly_rate, s.gender,
              (s.google_id IS NOT NULL) AS google_linked
       FROM staff s WHERE s.institution_id = $1 AND s.member_type = 'staff'`;
     const params = [institutionId];
@@ -33,6 +34,24 @@ exports.getAllStaff = async (req, res) => {
       query += ' AND s.is_active = false';
     }
 
+    // Male/female/not-set totals for the current search, department and status
+    // (before the gender filter itself, so admins always see the full split)
+    const genderCountsQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT s.gender, COUNT(*) FROM') + ' GROUP BY s.gender';
+    const genderCountsResult = await req.tenantDb.query(genderCountsQuery, params);
+    const genderCounts = { male: 0, female: 0, unspecified: 0 };
+    for (const row of genderCountsResult.rows) {
+      const key = row.gender === 'male' || row.gender === 'female' ? row.gender : 'unspecified';
+      genderCounts[key] += parseInt(row.count, 10);
+    }
+
+    if (gender === 'male' || gender === 'female') {
+      query += ` AND s.gender = $${paramIndex}`;
+      params.push(gender);
+      paramIndex++;
+    } else if (gender === 'unspecified') {
+      query += ' AND s.gender IS NULL';
+    }
+
     const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
     const countResult = await req.tenantDb.query(countQuery, params);
 
@@ -44,6 +63,7 @@ exports.getAllStaff = async (req, res) => {
     res.json({
       staff: result.rows,
       total: parseInt(countResult.rows[0].count, 10),
+      genderCounts,
       page: parseInt(page, 10),
       limit: parseInt(limit, 10),
     });
@@ -58,7 +78,7 @@ exports.getStaffById = async (req, res) => {
     const result = await req.tenantDb.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
               s.department, s.position, s.role, s.is_active, s.profile_photo_url,
-              s.qr_code_data, s.hourly_rate, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
+              s.qr_code_data, s.hourly_rate, s.gender, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
        FROM staff s WHERE s.id = $1 AND s.institution_id = $2`,
       [req.params.id, req.user.institution_id]
     );
@@ -82,6 +102,8 @@ exports.createStaff = async (req, res) => {
     if (!staffId || !firstName || !lastName || !password) {
       return res.status(400).json({ error: 'ID, first name, last name, and password are required' });
     }
+    const gender = normalizeGender(req.body.gender);
+    if (gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
     // Check if staff ID already exists
     const existing = await req.tenantDb.query(
@@ -98,11 +120,11 @@ exports.createStaff = async (req, res) => {
     const qrCodeData = `STAFF-${institutionId}-${staffId.toUpperCase()}`;
 
     const result = await req.tenantDb.query(
-      `INSERT INTO staff (id, institution_id, staff_id, first_name, last_name, email, phone, department, position, role, password_hash, qr_code_data, member_type, hourly_rate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'staff', $13)
-       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, qr_code_data, hourly_rate, created_at`,
+      `INSERT INTO staff (id, institution_id, staff_id, first_name, last_name, email, phone, department, position, role, password_hash, qr_code_data, member_type, hourly_rate, gender)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'staff', $13, $14)
+       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, qr_code_data, hourly_rate, gender, created_at`,
       [id, institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null,
-       department || null, position || null, role || 'staff', passwordHash, qrCodeData, hourlyRate || null]
+       department || null, position || null, role || 'staff', passwordHash, qrCodeData, hourlyRate || null, gender]
     );
 
     res.status(201).json(result.rows[0]);
@@ -128,6 +150,9 @@ exports.updateStaff = async (req, res) => {
     }
 
     const hourlyRateValue = hourlyRate === '' || hourlyRate === null ? null : (hourlyRate !== undefined ? hourlyRate : undefined);
+    const genderSent = req.body.gender !== undefined;
+    const gender = normalizeGender(req.body.gender);
+    if (genderSent && gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
     const result = await req.tenantDb.query(
       `UPDATE staff SET
@@ -140,10 +165,12 @@ exports.updateStaff = async (req, res) => {
         role = COALESCE($7, role),
         is_active = COALESCE($8, is_active),
         hourly_rate = CASE WHEN $10 THEN $9::numeric ELSE hourly_rate END,
+        gender = CASE WHEN $13 THEN $12::varchar ELSE gender END,
         updated_at = NOW()
        WHERE id = $11
-       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, updated_at`,
-      [firstName, lastName, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id]
+       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, gender, updated_at`,
+      [firstName, lastName, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id,
+       genderSent ? gender : null, genderSent]
     );
 
     res.json(result.rows[0]);
@@ -241,10 +268,11 @@ exports.bulkImport = async (req, res) => {
         const qrData = require('uuid').v4();
 
         await req.tenantDb.query(
-          `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, member_type)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff')
+          `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, member_type, gender)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', $11)
            ON CONFLICT (institution_id, staff_id) DO NOTHING`,
-          [institutionId, s.staffId.toUpperCase(), s.firstName, s.lastName, s.email || null, s.phone || null, s.department || null, s.position || null, passwordHash, qrData]
+          [institutionId, s.staffId.toUpperCase(), s.firstName, s.lastName, s.email || null, s.phone || null, s.department || null, s.position || null, passwordHash, qrData,
+           normalizeGender(s.gender) || null]
         );
         results.success++;
       } catch (err) {

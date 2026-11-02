@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 const crypto = require('crypto');
@@ -344,6 +345,8 @@ const completeGoogleSignupHandler = async (req, res) => {
     }
     const cleanFirstName = String(firstName || '').trim().slice(0, 100);
     const cleanLastName = String(lastName || '').trim().slice(0, 100);
+    const gender = normalizeGender(req.body.gender);
+    if (gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
     const google = await verifyGoogleIdToken(idToken);
 
@@ -366,9 +369,10 @@ const completeGoogleSignupHandler = async (req, res) => {
         `UPDATE staff SET phone = $1,
            first_name = COALESCE(NULLIF($2, ''), first_name),
            last_name = COALESCE(NULLIF($3, ''), last_name),
+           gender = COALESCE($5, gender),
            updated_at = NOW()
          WHERE id = $4`,
-        [cleanPhone, cleanFirstName, cleanLastName, staffUuid]
+        [cleanPhone, cleanFirstName, cleanLastName, staffUuid, gender]
       );
     } else {
       if (!institution) {
@@ -401,13 +405,13 @@ const completeGoogleSignupHandler = async (req, res) => {
 
       const insert = await pool.query(
         `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position,
-                            google_id, profile_photo_url, qr_code_data, role, member_type)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'staff', 'staff')
+                            google_id, profile_photo_url, qr_code_data, role, member_type, gender)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'staff', 'staff', $12)
          RETURNING id`,
         [institution.id, finalStaffId, cleanFirstName, cleanLastName, google.email, cleanPhone,
          department ? String(department).trim().slice(0, 100) : null,
          position ? String(position).trim().slice(0, 100) : null,
-         google.googleId, google.picture, `STAFF-${institution.id}-${finalStaffId}`]
+         google.googleId, google.picture, `STAFF-${institution.id}-${finalStaffId}`, gender]
       );
       staffUuid = insert.rows[0].id;
       created = true;
@@ -448,6 +452,8 @@ const registerHandler = async (req, res) => {
     if (password.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
+    const gender = normalizeGender(req.body.gender);
+    if (gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
     const institution = await getInstitutionByCode(normalizedInstitutionCode);
     if (!institution) {
@@ -468,10 +474,10 @@ const registerHandler = async (req, res) => {
     const qrData = `STAFF-${institutionId}-${staffId.toUpperCase()}`;
 
     const result = await pool.query(
-      `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, role, member_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', 'staff')
+      `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, role, member_type, gender)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', 'staff', $11)
        RETURNING id`,
-      [institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null, department || null, position || null, passwordHash, qrData]
+      [institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null, department || null, position || null, passwordHash, qrData, gender]
     );
 
     res.status(201).json({ message: 'Registration successful. You can now login with your Staff ID and password.' });
@@ -704,7 +710,7 @@ exports.getProfile = async (req, res) => {
   try {
     const result = await req.tenantDb.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
-              s.department, s.position, s.role, s.profile_photo_url, s.qr_code_data,
+              s.department, s.position, s.role, s.profile_photo_url, s.qr_code_data, s.gender,
               i.name as institution_name, i.latitude, i.longitude, i.geofence_radius
        FROM staff s
        JOIN institutions i ON s.institution_id = i.id

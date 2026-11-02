@@ -214,6 +214,8 @@ async function runAutoMigration(client) {
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) NOT NULL DEFAULT 'monthly'`,
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS currency VARCHAR(10) NOT NULL DEFAULT 'GHS'`,
     `ALTER TABLE staff ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10, 2)`,
+    // Staff gender: 'male' | 'female' | NULL (not set yet)
+    `ALTER TABLE staff ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`,
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
     // â”€â”€ Premises tracking (checked in at gate, left without working) â”€â”€
