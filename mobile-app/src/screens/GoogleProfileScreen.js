@@ -6,6 +6,7 @@ import {
 import { completeGoogleSignup } from '../services/api';
 import { useToast } from '../services/Toast';
 import { getDeviceInfo, saveSession } from '../services/googleAuth';
+import GenderChoice from '../components/GenderChoice';
 
 // Shown after Google sign-in when we still need the user's phone number
 // (and, for new accounts, their institution) before letting them in.
@@ -18,6 +19,7 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
     firstName: profile.firstName || '',
     lastName: profile.lastName || '',
     phone: '',
+    gender: '',
     staffId: '',
     department: '',
     position: '',
@@ -27,7 +29,7 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handleSubmit = async () => {
-    const { institutionCode, firstName, lastName, phone } = form;
+    const { institutionCode, firstName, lastName, phone, gender } = form;
     if (!existingAccount && !institutionCode.trim()) {
       toast.error('Please enter your institution code');
       return;
@@ -40,6 +42,10 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
       toast.error('Please enter a valid phone number');
       return;
     }
+    if (!gender) {
+      toast.error('Please select your gender');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -49,6 +55,7 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone: phone.trim(),
+        gender,
         staffId: form.staffId.trim().toUpperCase() || undefined,
         department: form.department.trim() || undefined,
         position: form.position.trim() || undefined,
@@ -126,6 +133,11 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
                   placeholderTextColor="#bdc3c7"
                 />
               </View>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Gender *</Text>
+              <GenderChoice value={form.gender} onChange={(g) => update('gender', g)} />
             </View>
 
             <View style={styles.inputContainer}>

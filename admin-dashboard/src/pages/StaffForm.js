@@ -37,7 +37,7 @@ export default function StaffForm() {
   const [form, setForm] = useState({
     staffId: '', firstName: '', lastName: '', email: '', phone: '',
     department: '', position: '', role: 'staff', password: '', isActive: true,
-    hourlyRate: '',
+    hourlyRate: '', gender: '',
   });
   const [qrCode, setQrCode] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +51,7 @@ export default function StaffForm() {
           email: s.email || '', phone: s.phone || '', department: s.department || '',
           position: s.position || '', role: s.role, password: '', isActive: s.is_active,
           hourlyRate: s.hourly_rate !== null && s.hourly_rate !== undefined ? s.hourly_rate : '',
+          gender: s.gender || '',
         });
       }).catch(() => toast.error('Failed to load staff'));
 
@@ -125,6 +126,14 @@ export default function StaffForm() {
             <div style={styles.field}>
               <label style={styles.label}>Phone</label>
               <input style={styles.input} name="phone" value={form.phone} onChange={handleChange} placeholder="+233..." />
+            </div>
+            <div style={styles.field}>
+              <label style={styles.label}>Gender *</label>
+              <select style={styles.input} name="gender" value={form.gender} onChange={handleChange} required>
+                <option value="" disabled>Select gender</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Department</label>

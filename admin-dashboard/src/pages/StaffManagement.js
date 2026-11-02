@@ -74,6 +74,8 @@ export default function StaffManagement() {
   const [department, setDepartment] = useState('');
   const [departments, setDepartments] = useState([]);
   const [statusFilter, setStatusFilter] = useState('');
+  const [genderFilter, setGenderFilter] = useState('');
+  const [genderCounts, setGenderCounts] = useState(null);
   const fileInputRef = React.useRef(null);
 
   const handleCSVUpload = async (e) => {
@@ -96,6 +98,7 @@ export default function StaffManagement() {
         phone: row['phone'] || '',
         department: row['department'] || '',
         position: row['position'] || '',
+        gender: row['gender'] || row['sex'] || '',
         password: row['password'] || 'Pass@123',
       };
     });
@@ -117,12 +120,12 @@ export default function StaffManagement() {
   };
 
   const fetchStaff = () => {
-    getStaff({ page, limit: 20, search, department, status: statusFilter })
-      .then(r => { setStaff(r.data.staff); setTotal(r.data.total); })
+    getStaff({ page, limit: 20, search, department, status: statusFilter, gender: genderFilter || undefined })
+      .then(r => { setStaff(r.data.staff); setTotal(r.data.total); setGenderCounts(r.data.genderCounts || null); })
       .catch(() => toast.error('Failed to load staff'));
   };
 
-  useEffect(() => { fetchStaff(); }, [page, department, statusFilter]);
+  useEffect(() => { fetchStaff(); }, [page, department, statusFilter, genderFilter]);
   useEffect(() => { getDepartments().then(r => setDepartments(r.data)).catch(() => {}); }, []);
 
   const handleSearch = (e) => {
@@ -209,13 +212,47 @@ export default function StaffManagement() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
+        <select style={styles.select} value={genderFilter} onChange={e => { setGenderFilter(e.target.value); setPage(1); }}>
+          <option value="">All Genders</option>
+          <option value="male">Male</option>
+          <option value="female">Female</option>
+          <option value="unspecified">Not set</option>
+        </select>
       </div>
+
+      {genderCounts && (
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          {[
+            ['', 'All', genderCounts.male + genderCounts.female + genderCounts.unspecified, '#1a5276'],
+            ['male', 'Male', genderCounts.male, '#2980b9'],
+            ['female', 'Female', genderCounts.female, '#c2185b'],
+            ['unspecified', 'Not set', genderCounts.unspecified, '#7f8c8d'],
+          ].map(([value, label, count, color]) => {
+            const active = genderFilter === value;
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => { setGenderFilter(value); setPage(1); }}
+                title={value === 'unspecified' ? 'Staff whose gender has not been recorded yet. Edit them to set it.' : undefined}
+                style={{
+                  padding: '6px 14px', borderRadius: '16px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+                  border: `1px solid ${color}`, background: active ? color : '#fff', color: active ? '#fff' : color,
+                }}
+              >
+                {label}: {count}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <table style={styles.table}>
         <thead>
           <tr>
             <th style={styles.th}>Staff ID</th>
             <th style={styles.th}>Name</th>
+            <th style={styles.th}>Gender</th>
             <th style={styles.th}>Department</th>
             <th style={styles.th}>Position</th>
             <th style={styles.th}>Email</th>
@@ -232,6 +269,7 @@ export default function StaffManagement() {
                 {s.first_name} {s.last_name}
                 {s.google_linked && <span style={styles.googleBadge} title="Signs in with Google">Google</span>}
               </td>
+              <td style={styles.td}>{s.gender === 'male' ? 'Male' : s.gender === 'female' ? 'Female' : <span style={{ color: '#bdc3c7' }}>Not set</span>}</td>
               <td style={styles.td}>{s.department || '-'}</td>
               <td style={styles.td}>{s.position || '-'}</td>
               <td style={styles.td}>{s.email || '-'}</td>
@@ -253,7 +291,7 @@ export default function StaffManagement() {
             </tr>
           ))}
           {staff.length === 0 && (
-            <tr><td colSpan={8} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: '#95a5a6' }}>No staff members found</td></tr>
+            <tr><td colSpan={9} style={{ ...styles.td, textAlign: 'center', padding: '40px', color: '#95a5a6' }}>No staff members found</td></tr>
           )}
         </tbody>
       </table>

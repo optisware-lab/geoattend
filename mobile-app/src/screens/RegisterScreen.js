@@ -7,10 +7,11 @@ import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 import AuthSwitch from '../components/AuthSwitch';
+import GenderChoice from '../components/GenderChoice';
 
 export default function RegisterScreen({ navigation, onLogin }) {
   const [form, setForm] = useState({
-    staffId: '', firstName: '', lastName: '', email: '', phone: '',
+    staffId: '', firstName: '', lastName: '', gender: '', email: '', phone: '',
     password: '', confirmPassword: '', department: '', position: '', institutionCode: '',
   });
   const [showPassword, setShowPassword] = useState(false);
@@ -31,6 +32,10 @@ export default function RegisterScreen({ navigation, onLogin }) {
       Alert.alert('Error', 'Please fill in Institution Code, Staff ID, First Name, Last Name, and Password');
       return;
     }
+    if (!form.gender) {
+      Alert.alert('Error', 'Please select your gender');
+      return;
+    }
     if (password.length < 6) {
       Alert.alert('Error', 'Password must be at least 6 characters');
       return;
@@ -49,6 +54,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
         lastName: lastName.trim(),
         email: form.email.trim() || undefined,
         phone: form.phone.trim() || undefined,
+        gender: form.gender,
         password,
         department: form.department.trim() || undefined,
         position: form.position.trim() || undefined,
@@ -134,6 +140,11 @@ export default function RegisterScreen({ navigation, onLogin }) {
                 autoCapitalize="none"
                 placeholderTextColor="#bdc3c7"
               />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Text style={styles.label}>Gender *</Text>
+              <GenderChoice value={form.gender} onChange={v => update('gender', v)} />
             </View>
 
             <View style={styles.inputContainer}>

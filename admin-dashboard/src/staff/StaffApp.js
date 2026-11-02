@@ -46,12 +46,41 @@ function Divider({ text }) {
 }
 
 /** One-time step for a first Google sign-in: phone number (+ institution for new accounts). */
+/** Two big buttons instead of a dropdown: one tap on a phone. */
+function GenderChoice({ value, onChange, idPrefix }) {
+  const option = (key, label) => {
+    const selected = value === key;
+    return (
+      <button
+        type="button"
+        id={`${idPrefix}-${key}`}
+        aria-pressed={selected}
+        onClick={() => onChange(key)}
+        style={{
+          flex: 1, padding: '12px 8px', fontSize: 15, fontWeight: 700, borderRadius: 10, cursor: 'pointer',
+          border: `1.5px solid ${selected ? NAVY : '#e0e0e0'}`, background: selected ? NAVY : '#fff',
+          color: selected ? '#fff' : '#2c3e50', fontFamily: 'inherit',
+        }}
+      >
+        {label}
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="Gender" style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+      {option('male', 'Male')}
+      {option('female', 'Female')}
+    </div>
+  );
+}
+
 function CompleteGoogleProfile({ step, onDone, onCancel }) {
   const { idToken, profile, existingAccount } = step;
   const [code, setCode] = useState(profile.institutionCode || session.lastInstitutionCode());
   const [firstName, setFirstName] = useState(profile.firstName || '');
   const [lastName, setLastName] = useState(profile.lastName || '');
   const [phone, setPhone] = useState('');
+  const [gender, setGender] = useState('');
   const [staffId, setStaffId] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +89,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
     e.preventDefault();
     const institutionCode = code.trim().toUpperCase();
     if (!phone.trim()) { setError('Enter your phone number.'); return; }
+    if (!gender) { setError('Select your gender.'); return; }
     if (!existingAccount && (!institutionCode || !firstName.trim() || !lastName.trim())) {
       setError('Enter your institution code and your name.');
       return;
@@ -71,6 +101,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
         idToken,
         institutionCode: existingAccount ? undefined : institutionCode,
         phone: phone.trim(),
+        gender,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         staffId: staffId.trim() || undefined,
@@ -110,6 +141,8 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
           </div>
         </>
       )}
+      <label style={s.label} htmlFor="g-male">Gender</label>
+      <GenderChoice value={gender} onChange={setGender} idPrefix="g" />
       <label style={s.label} htmlFor="g-phone">Phone number</label>
       <input id="g-phone" style={s.input} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
         placeholder="e.g. 024 123 4567" autoComplete="tel" />
@@ -162,7 +195,7 @@ const textLink = { background: 'none', border: 'none', color: NAVY, fontSize: 14
 /** New staff account: Google (one tap) or a short form. */
 function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
   const [form, setForm] = useState({
-    code: initialCode, firstName: '', lastName: '', staffId: '', phone: '', email: '', password: '', confirm: '',
+    code: initialCode, firstName: '', lastName: '', gender: '', staffId: '', phone: '', email: '', password: '', confirm: '',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -172,7 +205,7 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
     e.preventDefault();
     const institutionCode = form.code.trim();
     const staffId = form.staffId.trim();
-    if (!institutionCode || !form.firstName.trim() || !form.lastName.trim() || !staffId || !form.phone.trim() || !form.email.trim()) {
+    if (!institutionCode || !form.firstName.trim() || !form.lastName.trim() || !form.gender || !staffId || !form.phone.trim() || !form.email.trim()) {
       setError('Fill in every field.');
       return;
     }
@@ -185,7 +218,7 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
       await registerStaff({
         institutionCode, staffId,
         firstName: form.firstName.trim(), lastName: form.lastName.trim(),
-        phone: form.phone.trim(), email: form.email.trim().toLowerCase(), password: form.password,
+        phone: form.phone.trim(), email: form.email.trim().toLowerCase(), password: form.password, gender: form.gender,
       });
       // Sign straight in with the new account
       const { data } = await staffLogin(institutionCode, staffId, form.password);
@@ -222,6 +255,8 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
       </div>
       <label style={s.label} htmlFor="r-staffid">Staff ID</label>
       <input id="r-staffid" style={s.input} value={form.staffId} onChange={set('staffId')} placeholder="Your staff number, e.g. STF001" autoCapitalize="characters" autoComplete="username" />
+      <label style={s.label} htmlFor="r-male">Gender</label>
+      <GenderChoice value={form.gender} onChange={(g) => setForm((f) => ({ ...f, gender: g }))} idPrefix="r" />
       <label style={s.label} htmlFor="r-phone">Phone number</label>
       <input id="r-phone" style={s.input} type="tel" value={form.phone} onChange={set('phone')} placeholder="e.g. 024 123 4567" autoComplete="tel" />
       <label style={s.label} htmlFor="r-email">Email</label>
