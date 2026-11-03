@@ -267,18 +267,18 @@ export default function HomeScreen() {
     toast.warning('Check-out saved. Will sync when back online.', 'Saved Offline');
   };
 
-  // When we detect user is outside geofence while app is open, record a geofence event.
-  // Location now updates live, so only report the moment they step outside
-  // (and then at most every 10 minutes), not on every GPS update.
-  const lastExitReport = useRef({ outside: false, at: 0 });
+  // Report inside/outside to the server so it can record both leaving the
+  // premises and coming back. Location updates live, so only report when the
+  // state changes (plus a repeat every 10 minutes while outside), not on
+  // every GPS update.
+  const lastGeofenceReport = useRef({ state: null, at: 0 });
   useEffect(() => {
-    const postExitIfNeeded = async () => {
-      if (!institution || distance === null) return;
-      const outside = distance > institution.geofenceRadius;
-      const prev = lastExitReport.current;
-      if (!outside) { prev.outside = false; return; }
-      if (prev.outside && Date.now() - prev.at < 10 * 60 * 1000) return;
-      lastExitReport.current = { outside: true, at: Date.now() };
+    const postGeofenceStatus = async () => {
+      if (!institution || distance === null || location?.latitude == null) return;
+      const state = distance > institution.geofenceRadius ? 'outside' : 'inside';
+      const prev = lastGeofenceReport.current;
+      if (state === prev.state && (state === 'inside' || Date.now() - prev.at < 10 * 60 * 1000)) return;
+      lastGeofenceReport.current = { state, at: Date.now() };
 
       const payload = {
         latitude: location?.latitude,
@@ -299,7 +299,7 @@ export default function HomeScreen() {
       }
     };
 
-    postExitIfNeeded();
+    postGeofenceStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [distance, institution?.geofenceRadius]);
 
