@@ -103,7 +103,7 @@ function greetingFor(date) {
   return 'Good Evening';
 }
 
-// ---------- Check-In tab ----------
+// ---------- Sign-In tab ----------
 
 function clockToday(hhmmss, base) {
   if (!hhmmss) return null;
@@ -130,7 +130,7 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
   const workedMs = checkedInAt ? (checkedOutAt || now) - checkedInAt : 0;
   const earlyOut = status === 'checked_in' && workEnd && now < workEnd;
 
-  // The check-out button asks once more, so a stray tap never ends the day
+  // The sign-out button asks once more, so a stray tap never ends the day
   useEffect(() => {
     if (!confirmOut) return undefined;
     const id = setTimeout(() => setConfirmOut(false), 5000);
@@ -143,8 +143,8 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
     onCheckOut();
   };
 
-  let checkInHint = 'Tap to check in with GPS';
-  if (locationError) checkInHint = 'Turn on location to check in';
+  let checkInHint = 'Tap to sign in with GPS';
+  if (locationError) checkInHint = 'Turn on location to sign in';
   else if (distance == null) checkInHint = 'Finding your location...';
   else if (outside) checkInHint = `You are ${distance - radius}m too far. It unlocks when you arrive.`;
 
@@ -161,7 +161,7 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
       <div style={{ marginBottom: 16 }}>
         {status === 'checked_in' ? (
           <button type="button" style={st.actionBtn(confirmOut ? '#922b21' : C.red, !!busy)} disabled={!!busy} onClick={handleCheckOut}>
-            <span style={st.actionText}>{busy === 'checkout' ? 'Checking out...' : confirmOut ? 'Tap again to check out' : 'Check Out'}</span>
+            <span style={st.actionText}>{busy === 'checkout' ? 'Signing out...' : confirmOut ? 'Tap again to sign out' : 'Sign Out'}</span>
             <span style={st.actionSub}>
               {confirmOut
                 ? (earlyOut ? `Work ends at ${formatTime(workEnd)}. Leaving early?` : 'This ends your day')
@@ -175,7 +175,7 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
           </button>
         ) : (
           <button type="button" style={st.actionBtn(C.green, !!busy || outside)} disabled={!!busy || outside} onClick={onCheckIn}>
-            <span style={st.actionText}>{busy === 'checkin' ? 'Checking in...' : 'Check In'}</span>
+            <span style={st.actionText}>{busy === 'checkin' ? 'Signing in...' : 'Sign In'}</span>
             <span style={st.actionSub}>{checkInHint}</span>
           </button>
         )}
@@ -215,7 +215,7 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
         <div style={st.cardLabel}>TODAY</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={st.cardValue}>
-            {status === 'checked_in' ? 'Checked In' : status === 'checked_out' ? 'Checked Out' : status ? 'Not Checked In' : 'Loading...'}
+            {status === 'checked_in' ? 'Signed In' : status === 'checked_out' ? 'Signed Out' : status ? 'Not Signed In' : 'Loading...'}
           </span>
           {checkedInAt && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: record?.is_late ? '#fef5e7' : '#e8f6ee', color: record?.is_late ? '#b9770e' : '#1e8449' }}>
@@ -349,7 +349,7 @@ function QrTab({ active, onQrText, onPhoto, busy, message }) {
   return (
     <div style={st.scroll}>
       <div style={{ padding: '10px 0 16px' }}>
-        <h1 style={st.title}>QR Code Check-In</h1>
+        <h1 style={st.title}>QR Code Sign-In</h1>
         <div style={st.subtitle}>Scan the institution QR code or your staff ID card</div>
       </div>
 
@@ -359,7 +359,7 @@ function QrTab({ active, onQrText, onPhoto, busy, message }) {
         <CameraScanner active={active && !paused && !busy} onResult={handleResult} />
         {busy === 'qr' && (
           <div style={{ position: 'absolute', inset: 0, borderRadius: 16, background: 'rgba(0,0,0,0.6)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 600 }}>
-            Checking in...
+            Signing in...
           </div>
         )}
       </div>
@@ -372,7 +372,7 @@ function QrTab({ active, onQrText, onPhoto, busy, message }) {
       </div>
       <p style={{ fontSize: 13, color: C.textSecondary, textAlign: 'center', lineHeight: 1.5, marginTop: 12 }}>
         Point your camera at the QR code posted at the entrance or on your staff ID card, or upload a photo of it.
-        GPS must be enabled — check-in is rejected outside your institution's geofence.
+        GPS must be enabled — sign-in is rejected outside your institution's geofence.
       </p>
     </div>
   );
@@ -507,7 +507,7 @@ function ProfileTab({ active, onSignOut }) {
       )}
 
       <button type="button" style={{ width: '100%', padding: 16, borderRadius: 12, border: '1px solid #f5c6cb', background: '#fff', color: C.red, fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 8, fontFamily: FONT }} onClick={onSignOut}>
-        Sign Out
+        Log Out
       </button>
       <p style={{ textAlign: 'center', fontSize: 12, color: C.textMuted, marginTop: 16 }}>GeoAttend · Powered by Optisware</p>
     </div>
@@ -517,7 +517,7 @@ function ProfileTab({ active, onSignOut }) {
 // ---------- Shell with bottom tabs (like the mobile app) ----------
 
 const TABS = [
-  { key: 'home', label: 'Staff Check-In', Icon: IoLocation },
+  { key: 'home', label: 'Staff Sign-In', Icon: IoLocation },
   { key: 'qr', label: 'QR Scan', Icon: IoQrCode },
   { key: 'history', label: 'History', Icon: IoCalendar },
   { key: 'profile', label: 'Profile', Icon: IoPerson },
@@ -549,7 +549,7 @@ export default function StaffHome({ onSignOut }) {
   const handleAuthError = useCallback((err) => {
     if (err?.response?.status === 401) {
       session.clear();
-      onSignOut('Your session has expired. Please sign in again.');
+      onSignOut('Your session has expired. Please log in again.');
       return true;
     }
     return false;
@@ -583,8 +583,8 @@ export default function StaffHome({ onSignOut }) {
     refreshLocation();
   }, [loadToday, refreshLocation]);
 
-  // Follow the phone's location while the check-in tab is open, so the
-  // Check In button unlocks by itself the moment you reach work.
+  // Follow the phone's location while the sign-in tab is open, so the
+  // Sign In button unlocks by itself the moment you reach work.
   useEffect(() => {
     if (tab !== 'home' || !navigator.geolocation?.watchPosition) return undefined;
     const id = navigator.geolocation.watchPosition(
@@ -599,7 +599,7 @@ export default function StaffHome({ onSignOut }) {
   }, [tab]);
 
   // Coming back to the page (or the phone waking up) refreshes today's status,
-  // e.g. after the automatic evening check-out.
+  // e.g. after the automatic evening sign-out.
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
@@ -611,10 +611,10 @@ export default function StaffHome({ onSignOut }) {
   }, [loadToday]);
 
   const afterCheckIn = (data, how) => {
-    setMessage({ type: 'success', text: data.isLate ? `Checked in ${how}. You are marked as LATE.` : `Checked in ${how}. Have a good day!` });
+    setMessage({ type: 'success', text: data.isLate ? `Signed in ${how}. You are marked as LATE.` : `Signed in ${how}. Have a good day!` });
     setStatus('checked_in');
     setRecord(data.record || null);
-    setTab('home'); // show the result on the main screen, whichever way they checked in
+    setTab('home'); // show the result on the main screen, whichever way they signed in
     getWeeklyStats().then(({ data: s }) => setStats(s.month)).catch(() => {});
   };
 
@@ -631,7 +631,7 @@ export default function StaffHome({ onSignOut }) {
       const { data } = await checkIn({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId() });
       afterCheckIn(data, 'with GPS');
     } catch (err) {
-      fail(err, 'Check-in failed. Please try again.');
+      fail(err, 'Sign-in failed. Please try again.');
     } finally {
       setBusy('');
     }
@@ -644,11 +644,11 @@ export default function StaffHome({ onSignOut }) {
       const loc = await refreshLocation();
       if (!loc) return;
       const { data } = await checkOut({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId() });
-      setMessage({ type: 'success', text: 'Checked out. See you tomorrow!' });
+      setMessage({ type: 'success', text: 'Signed out. See you tomorrow!' });
       setStatus('checked_out');
       setRecord(data.record || record);
     } catch (err) {
-      fail(err, 'Check-out failed. Please try again.');
+      fail(err, 'Sign-out failed. Please try again.');
     } finally {
       setBusy('');
     }
@@ -662,7 +662,7 @@ export default function StaffHome({ onSignOut }) {
     }
     const loc = await refreshLocation();
     if (!loc) {
-      setMessage({ type: 'error', text: 'GPS location is required for QR check-in. Turn on location and try again.' });
+      setMessage({ type: 'error', text: 'GPS location is required for QR sign-in. Turn on location and try again.' });
       return;
     }
     const { data } = await checkIn({
@@ -678,7 +678,7 @@ export default function StaffHome({ onSignOut }) {
     try {
       await checkInWithQrText(text);
     } catch (err) {
-      fail(err, 'Check-in failed. Please try again.');
+      fail(err, 'Sign-in failed. Please try again.');
     } finally {
       setBusy('');
     }

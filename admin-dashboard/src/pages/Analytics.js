@@ -140,7 +140,7 @@ export default function Analytics() {
               <tr>
                 <th style={styles.th}>Department</th>
                 <th style={styles.th}>Members</th>
-                <th style={styles.th}>Check-ins</th>
+                <th style={styles.th}>Sign-ins</th>
                 <th style={styles.th}>Late %</th>
                 <th style={styles.th}>Avg Hours</th>
               </tr>

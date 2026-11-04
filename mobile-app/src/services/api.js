@@ -39,8 +39,8 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// ---- Staying signed in ----------------------------------------------------
-// Staff stay signed in until they tap Sign Out. When the server says the
+// ---- Staying logged in ----------------------------------------------------
+// Staff stay logged in until they tap Log Out. When the server says the
 // token ran out, we swap it for a fresh one and repeat the request. Several
 // requests failing at once share one renewal, and a network problem during
 // renewal never signs anyone out; only the server refusing the account does.
@@ -142,7 +142,7 @@ api.interceptors.response.use(
       try {
         fresh = await renewSession();
       } catch {
-        // Offline or server waking up: keep the saved sign-in and just fail this request
+        // Offline or server waking up: keep the saved login and just fail this request
         return Promise.reject(error);
       }
       if (!fresh) return Promise.reject(error);

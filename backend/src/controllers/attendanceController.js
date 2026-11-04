@@ -16,7 +16,7 @@ async function logFraudEvent(db, { institutionId, staffUuid, eventType, details,
 const MAX_OFFLINE_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Check-ins/outs made without internet are queued on the phone and synced
+ * Sign-ins/outs made without internet are queued on the phone and synced
  * later. They carry when they happened (recordedAt) and the phone's clock at
  * sync time (sentAt); the difference to server time corrects a wrong phone
  * clock. Returns { at: Date|null, note: string|null } — at is null for live
@@ -90,7 +90,7 @@ exports.checkIn = async (req, res) => {
   await runCheckIn(req, res, req.body || {});
 };
 
-/** Shared check-in core: direct /check-in (scanned QR payload arrives in the JSON
+/** Shared sign-in core: direct /check-in (scanned QR payload arrives in the JSON
  *  body) and /check-in-from-image (QR decoded server-side from an uploaded photo)
  *  both funnel into the exact same validation and record creation. */
 async function runCheckIn(req, res, body) {
@@ -103,7 +103,7 @@ async function runCheckIn(req, res, body) {
     // Validate method
     const validMethods = ['gps', 'qr_code', 'nfc', 'manual'];
     if (!validMethods.includes(method)) {
-      return res.status(400).json({ error: 'Invalid check-in method' });
+      return res.status(400).json({ error: 'Invalid sign-in method' });
     }
 
     const offline = resolveOfflineTime(body);
@@ -113,7 +113,7 @@ async function runCheckIn(req, res, body) {
     // Payments / geofence context
     const { institution: inst, staffRate, rules } = await loadEarningsContext(db, institutionId, staffUuid);
 
-    // ── Location is REQUIRED for every check-in method ──────────────────────
+    // ── Location is REQUIRED for every sign-in method ──────────────────────
     // Scanning QR or tapping GPS from home must never produce a valid record.
     if (!latitude || !longitude) {
       await logFraudEvent(db, {
@@ -176,7 +176,7 @@ async function runCheckIn(req, res, body) {
       }
     }
 
-    // Check for duplicate check-in today
+    // Check for duplicate sign-in today
     const today = eventTime.toISOString().split('T')[0];
     const existing = await db.query(
       'SELECT id, check_out_time FROM attendance_records WHERE staff_uuid = $1 AND date = $2 ORDER BY check_in_time DESC LIMIT 1',
@@ -191,7 +191,7 @@ async function runCheckIn(req, res, body) {
         details: { method, date: today },
         ipAddress: req.ip,
       });
-      return res.status(400).json({ error: 'You already have an active check-in. Please check out first.' });
+      return res.status(400).json({ error: 'You already have an active sign-in. Please sign out first.' });
     }
 
     // ── Geofence verification (required for every method) ────────────────────
@@ -232,7 +232,7 @@ async function runCheckIn(req, res, body) {
       isLate = now > lateTime;
     }
 
-    // Record check-in
+    // Record sign-in
     const record = await db.query(
       `INSERT INTO attendance_records
         (staff_uuid, institution_id, check_in_time, check_in_latitude, check_in_longitude,
@@ -257,7 +257,7 @@ async function runCheckIn(req, res, body) {
       : null;
 
     res.status(201).json({
-      message: 'Check-in successful',
+      message: 'Sign-in successful',
       record: record.rows[0],
       isLate,
       withinGeofence,
@@ -269,13 +269,13 @@ async function runCheckIn(req, res, body) {
       },
     });
   } catch (err) {
-    console.error('Check-in error:', err);
+    console.error('Sign-in error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 }
 
-/** Check-in from a photo of the QR code (gallery pick). The image is decoded
- *  server-side, then validated with the full standard QR check-in pipeline. */
+/** Sign-in from a photo of the QR code (gallery pick). The image is decoded
+ *  server-side, then validated with the full standard QR sign-in pipeline. */
 exports.checkInFromImage = async (req, res) => {
   if (!req.file || !req.file.buffer || req.file.buffer.length === 0) {
     return res.status(400).json({ error: 'No image uploaded. Attach the QR photo as the "image" field.' });
@@ -316,7 +316,7 @@ exports.checkInFromImage = async (req, res) => {
       qrToken,
     });
   } catch (err) {
-    console.error('QR image check-in error:', err);
+    console.error('QR image sign-in error:', err);
     if (!res.headersSent) res.status(500).json({ error: 'Server error' });
   }
 };
@@ -333,17 +333,17 @@ exports.checkOut = async (req, res) => {
     const eventTime = offline.at || new Date();
     const today = eventTime.toISOString().split('T')[0];
 
-    // Find active check-in
+    // Find active sign-in
     const active = await db.query(
       'SELECT id FROM attendance_records WHERE staff_uuid = $1 AND date = $2 AND check_out_time IS NULL ORDER BY check_in_time DESC LIMIT 1',
       [staffUuid, today]
     );
 
     if (active.rows.length === 0) {
-      return res.status(400).json({ error: 'No active check-in found' });
+      return res.status(400).json({ error: 'No active sign-in found' });
     }
 
-    // ── Location is REQUIRED for check-out too ───────────────────────────────
+    // ── Location is REQUIRED for sign-out too ───────────────────────────────
     if (!latitude || !longitude) {
       await logFraudEvent(db, {
         institutionId,
@@ -398,7 +398,7 @@ exports.checkOut = async (req, res) => {
        offline.at ? offline.at.toISOString() : null, offline.note]
     );
 
-    // Track overtime if checking out after work end time
+    // Track overtime if signing out after work end time
     let overtimeMultiplierDecimal = null;
     let workEndTimeForEarnings = null;
     try {
@@ -444,7 +444,7 @@ exports.checkOut = async (req, res) => {
       : null;
 
     res.json({
-      message: 'Check-out successful',
+      message: 'Sign-out successful',
       record: record.rows[0],
       payment: {
         mode: inst?.payment_mode || 'monthly',
@@ -454,7 +454,7 @@ exports.checkOut = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Check-out error:', err);
+    console.error('Sign-out error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

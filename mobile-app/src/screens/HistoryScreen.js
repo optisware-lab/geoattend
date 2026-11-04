@@ -120,7 +120,7 @@ export default function HistoryScreen() {
         onEndReached={onEndReached}
         onEndReachedThreshold={0.3}
         ListEmptyComponent={
-          !loading && !error ? <Text style={[styles.emptyText, { color: theme.textMuted }]}>No attendance records yet. Your check-ins will appear here.</Text> : null
+          !loading && !error ? <Text style={[styles.emptyText, { color: theme.textMuted }]}>No attendance records yet. Your sign-ins will appear here.</Text> : null
         }
       />
     </SafeAreaView>

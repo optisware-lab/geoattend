@@ -323,7 +323,7 @@ exports.exportExcel = async (req, res) => {
       alignment: { horizontal: 'center' },
     });
 
-    const headers = ['Date', 'Staff ID', 'First Name', 'Last Name', 'Department', 'Position', 'Check In', 'Check Out', 'Method', 'Late', 'Within Geofence', 'Left Premises', 'Returned'];
+    const headers = ['Date', 'Staff ID', 'First Name', 'Last Name', 'Department', 'Position', 'Sign In', 'Sign Out', 'Method', 'Late', 'Within Geofence', 'Left Premises', 'Returned'];
     headers.forEach((h, i) => ws.cell(1, i + 1).string(h).style(headerStyle));
 
     result.rows.forEach((row, i) => {
@@ -401,7 +401,7 @@ exports.exportPDF = async (req, res) => {
     // Table header
     const tableTop = doc.y;
     const colWidths = [68, 55, 78, 64, 55, 55, 45, 40];
-    const colHeaders = ['Date', 'Staff ID', 'Name', 'Department', 'Check In', 'Check Out', 'Method', 'Status'];
+    const colHeaders = ['Date', 'Staff ID', 'Name', 'Department', 'Sign In', 'Sign Out', 'Method', 'Status'];
 
     doc.fontSize(8).font('Helvetica-Bold');
     let x = 40;

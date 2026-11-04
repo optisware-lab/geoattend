@@ -103,7 +103,7 @@ export default function Dashboard() {
     attention.push({ tone: 'orange', icon: FiCalendar, title: `${pendingLeave} leave request${pendingLeave > 1 ? 's' : ''} waiting`, text: 'Approve or reject in one click', to: '/leave' });
   }
   if (isWorkingDay && pastStart && notInYet > 0) {
-    attention.push({ tone: 'red', icon: FiUserX, title: `${notInYet} staff not checked in yet`, text: `Work started at ${formatClock(rules?.work_start_time)}`, to: '/attendance?view=missing' });
+    attention.push({ tone: 'red', icon: FiUserX, title: `${notInYet} staff not signed in yet`, text: `Work started at ${formatClock(rules?.work_start_time)}`, to: '/attendance?view=missing' });
   }
   if (late > 0) {
     attention.push({ tone: 'orange', icon: FiClock, title: `${late} arrived late today`, text: 'See who and what time', to: '/attendance?view=late' });
@@ -112,11 +112,11 @@ export default function Dashboard() {
     attention.push({
       tone: subscription.daysRemaining <= 2 ? 'red' : 'orange', icon: FiCreditCard,
       title: subscription.status === 'trialing' ? `Free trial ends in ${subscription.daysRemaining} day(s)` : `Plan renews in ${subscription.daysRemaining} day(s)`,
-      text: 'Renew to keep check-ins working', to: '/billing',
+      text: 'Renew to keep sign-ins working', to: '/billing',
     });
   }
   if (subscription && subscription.status === 'past_due') {
-    attention.push({ tone: 'red', icon: FiCreditCard, title: 'Payment overdue', text: 'Staff check-ins may be blocked', to: '/billing' });
+    attention.push({ tone: 'red', icon: FiCreditCard, title: 'Payment overdue', text: 'Staff sign-ins may be blocked', to: '/billing' });
   }
 
   const lineData = {
@@ -166,14 +166,14 @@ export default function Dashboard() {
         <StatCard label="Total staff" value={firstLoad ? '–' : total} hint="Active accounts" icon={FiUsers} color="#3498db" onClick={() => navigate('/staff')} />
         <StatCard label="Present" value={firstLoad ? '–' : present} hint={`${rate}% of staff · ${stillOut} still on site`} icon={FiUserCheck} color="#27ae60" onClick={() => navigate('/attendance')} />
         <StatCard label="Late" value={firstLoad ? '–' : late} hint={rules?.work_start_time ? `After ${formatClock(rules.work_start_time)} + ${rules.late_threshold_minutes || 0} min` : 'Arrived after start time'} icon={FiClock} color="#f39c12" onClick={() => navigate('/attendance?view=late')} />
-        <StatCard label="Not in" value={firstLoad ? '–' : absent} hint={onLeave ? `incl. ${onLeave} on approved leave` : 'No check-in today'} icon={FiUserX} color="#e74c3c" onClick={() => navigate('/attendance?view=missing')} />
+        <StatCard label="Not in" value={firstLoad ? '–' : absent} hint={onLeave ? `incl. ${onLeave} on approved leave` : 'No sign-in today'} icon={FiUserX} color="#e74c3c" onClick={() => navigate('/attendance?view=missing')} />
       </div>
 
       <div className="ga-card" style={{ padding: '16px 20px', marginBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10, gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: '#2c3e50' }}>Today's attendance rate</span>
           <span style={{ fontSize: 13, color: '#7f8c8d' }}>
-            <strong style={{ fontSize: 20, color: rate >= 80 ? '#27ae60' : rate >= 60 ? '#f39c12' : '#e74c3c' }}>{rate}%</strong> · {present} of {total} checked in
+            <strong style={{ fontSize: 20, color: rate >= 80 ? '#27ae60' : rate >= 60 ? '#f39c12' : '#e74c3c' }}>{rate}%</strong> · {present} of {total} signed in
           </span>
         </div>
         <div className="ga-progress" style={{ height: 10 }}>
@@ -205,12 +205,12 @@ export default function Dashboard() {
         </Card>
 
         <Card
-          title="Latest check-ins"
+          title="Latest sign-ins"
           icon={FiActivity}
           action={<button type="button" className="ga-btn ga-btn-sm" onClick={() => navigate('/attendance')}>See all</button>}
         >
           {recent.length === 0 ? (
-            <EmptyState icon={FiClock} title="No check-ins yet today" text={rules?.work_start_time ? `Work starts at ${formatClock(rules.work_start_time)}` : undefined} />
+            <EmptyState icon={FiClock} title="No sign-ins yet today" text={rules?.work_start_time ? `Work starts at ${formatClock(rules.work_start_time)}` : undefined} />
           ) : (
             <div>
               {recent.slice(0, 6).map((r) => (

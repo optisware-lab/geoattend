@@ -8,7 +8,7 @@ import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    {/* Staff web check-in has its own sign-in and session, separate from the admin dashboard */}
+    {/* Staff web sign-in has its own login and session, separate from the admin dashboard */}
     {window.location.pathname.startsWith('/staff') ? <StaffApp /> : <App />}
   </React.StrictMode>
 );

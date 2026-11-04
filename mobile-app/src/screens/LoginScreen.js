@@ -125,7 +125,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
 
       const creds = await getCredentials();
       if (!creds) {
-        toast.error('No saved credentials found. Sign in once with password first.');
+        toast.error('No saved credentials found. Log in once with password first.');
         return;
       }
 
@@ -249,7 +249,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Sign In</Text>
+              <Text style={styles.buttonText}>Log In</Text>
             )}
           </TouchableOpacity>
 

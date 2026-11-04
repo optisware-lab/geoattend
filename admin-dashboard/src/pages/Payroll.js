@@ -181,7 +181,7 @@ export default function Payroll() {
         <div style={styles.banner}>
           <FiAlertTriangle />
           <span>
-            {flagRows} staff member{flagRows > 1 ? 's' : ''} checked in but left the premises without returning — review the
+            {flagRows} staff member{flagRows > 1 ? 's' : ''} signed in but left the premises without returning — review the
             highlighted rows before paying their hours.
           </span>
         </div>

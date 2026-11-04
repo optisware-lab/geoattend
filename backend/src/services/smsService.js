@@ -64,11 +64,11 @@ const sendSMS = async (to, message) => {
 };
 
 const sendCheckInReminder = async (phone, name) => {
-  return sendSMS(phone, `Hi ${name}, this is a reminder to check in at work today. - GeoAttend`);
+  return sendSMS(phone, `Hi ${name}, this is a reminder to sign in at work today. - GeoAttend`);
 };
 
 const sendLateAlert = async (phone, name, time) => {
-  return sendSMS(phone, `${name}, you checked in late today at ${time}. Please ensure punctuality. - GeoAttend`);
+  return sendSMS(phone, `${name}, you signed in late today at ${time}. Please ensure punctuality. - GeoAttend`);
 };
 
 const sendAbsentAlert = async (phone, name, date) => {

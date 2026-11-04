@@ -38,8 +38,8 @@ async function generateQRCodeBuffer(staffData) {
 }
 
 /**
- * Generate a single institution-wide check-in QR code.
- * Staff scan this at the entrance to check in.
+ * Generate a single institution-wide sign-in QR code.
+ * Staff scan this at the entrance to sign in.
  * When the institution has a rotation token it is embedded so the server can
  * verify the scan is on the CURRENT poster (old prints/photos become invalid).
  */

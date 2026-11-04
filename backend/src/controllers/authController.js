@@ -118,7 +118,7 @@ function logDevice(staffUuid, { deviceId, deviceModel, osVersion }, action, ipAd
   ).catch(err => console.error('Device log error:', err.message));
 }
 
-/** Token + user/institution/subscription payload returned by every sign-in route. */
+/** Token + user/institution/subscription payload returned by every login route. */
 async function buildAuthPayload(staff, institutionCode) {
   const token = signSessionToken(staff);
 
@@ -178,7 +178,7 @@ async function verifyGoogleIdToken(idToken) {
   const audience = (process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID || '')
     .split(',').map((s) => s.trim()).filter(Boolean);
   if (audience.length === 0) {
-    const err = new Error('Google sign-in is not configured on the server');
+    const err = new Error('Google login is not configured on the server');
     err.status = 503;
     throw err;
   }
@@ -189,7 +189,7 @@ async function verifyGoogleIdToken(idToken) {
     payload = ticket.getPayload();
   } catch (e) {
     console.error('Google token verification failed:', e.message);
-    const err = new Error('Google sign-in could not be verified. Please try again.');
+    const err = new Error('Google login could not be verified. Please try again.');
     err.status = 401;
     throw err;
   }
@@ -278,7 +278,7 @@ async function findStaffForGoogle(google, institution) {
 const PHONE_PATTERN = /^\+?[0-9][0-9\s-]{6,18}[0-9]$/;
 
 /**
- * Step 1 of Google sign-in / sign-up. Signs in a linked account that has a
+ * Step 1 of Google login / sign-up. Signs in a linked account that has a
  * phone number on file; otherwise asks the app to collect the missing details
  * (phone, institution) and call /auth/google/complete.
  */
@@ -325,7 +325,7 @@ const googleAuthHandler = async (req, res) => {
 };
 
 /**
- * Step 2 of Google sign-in / sign-up: saves the phone number (and name) for a
+ * Step 2 of Google login / sign-up: saves the phone number (and name) for a
  * linked account, or creates a new staff account from the Google profile.
  */
 const completeGoogleSignupHandler = async (req, res) => {
@@ -716,7 +716,7 @@ exports.getProfile = async (req, res) => {
 };
 
 
-// Public sign-in flows run before a user identity exists, so Postgres RLS has
+// Public login flows run before a user identity exists, so Postgres RLS has
 // no institution context yet - they execute with the system bypass and the
 // handlers themselves verify the institution link before issuing a JWT.
 const withSystem = (handler) => (req, res) =>

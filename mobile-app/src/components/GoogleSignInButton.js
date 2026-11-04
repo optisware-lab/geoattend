@@ -31,7 +31,7 @@ export default function GoogleSignInButton({ label = 'Continue with Google', ins
       await saveSession(data);
       onSignedIn && onSignedIn();
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Google sign-in failed';
+      const msg = err.response?.data?.error || err.message || 'Google login failed';
       toast.error(msg, 'Google Sign-In');
     } finally {
       setBusy(false);

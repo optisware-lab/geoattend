@@ -33,7 +33,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
     isBiometricEnabled().then(setBioEnabled);
   }, []);
 
-  // Show the details saved at sign-in straight away, then refresh from the
+  // Show the details saved at login straight away, then refresh from the
   // server (which can take a while when it is waking up or offline)
   const loadProfile = async () => {
     setProfileError(false);
@@ -188,7 +188,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
   };
 
   const handleSwitchAccount = () => {
-    Alert.alert('Switch Account', 'Sign out and switch to a different staff account on this device?', [
+    Alert.alert('Switch Account', 'Log out and switch to a different staff account on this device?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Switch',
@@ -202,10 +202,10 @@ export default function ProfileScreen({ navigation, onLogout }) {
   };
 
   const handleLogout = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+    Alert.alert('Log Out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: 'Log Out',
         style: 'destructive',
         onPress: async () => {
           await saveToRecentAccounts();
@@ -358,7 +358,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
         )}
 
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={styles.logoutBtnText}>Sign Out</Text>
+          <Text style={styles.logoutBtnText}>Log Out</Text>
         </TouchableOpacity>
 
         <View style={styles.versionBox}>

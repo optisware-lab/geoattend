@@ -53,7 +53,7 @@ function MainTabs({ onLogout }) {
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{
-        tabBarLabel: 'Staff Check-In',
+        tabBarLabel: 'Staff Sign-In',
         tabBarIcon: ({ color, size }) => <Ionicons name="location" size={size} color={color} />,
       }} />
       <Tab.Screen name="QRScan" component={QRScanScreen} options={{
@@ -124,15 +124,15 @@ export default function App() {
     });
   }, []);
 
-  // Every sign-in (new or remembered) sets up push + reminders that follow the
+  // Every login (new or remembered) sets up push + reminders that follow the
   // institution's real work hours. May fail in Expo Go, never blocks the app.
-  // If the server ends the session (account deactivated), go back to sign-in
+  // If the server ends the session (account deactivated), go back to login
   useEffect(() => onSessionEnded(() => setIsLoggedIn(false)), []);
 
   useEffect(() => {
     if (!isLoggedIn) return;
-    // Renew the sign-in every time the app opens, so it never runs out for
-    // staff who use the app. Offline is fine: the saved sign-in is kept.
+    // Renew the login every time the app opens, so it never runs out for
+    // staff who use the app. Offline is fine: the saved login is kept.
     renewSession().catch(() => {});
     registerForPushNotifications()
       .catch(() => {})

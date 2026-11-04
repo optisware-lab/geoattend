@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 /**
- * "Sign In | Sign Up" switch shown under the logo, so new staff see Sign Up
+ * "Log In | Sign Up" switch shown under the logo, so new staff see Sign Up
  * as soon as the app opens instead of a small link under the form.
  */
 export default function AuthSwitch({ active, onSignIn, onSignUp }) {
@@ -23,7 +23,7 @@ export default function AuthSwitch({ active, onSignIn, onSignUp }) {
 
   return (
     <View style={styles.container}>
-      {option('signin', 'Sign In', onSignIn)}
+      {option('signin', 'Log In', onSignIn)}
       {option('signup', 'Sign Up', onSignUp)}
     </View>
   );

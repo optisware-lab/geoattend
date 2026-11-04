@@ -206,7 +206,7 @@ export default function Sidebar({ user, onLogout }) {
           <div style={styles.userName}>{user.firstName} {user.lastName}</div>
           <div style={styles.userRole}>{user.role}</div>
           <button style={styles.logoutBtn} onClick={onLogout}>
-            <FiLogOut size={14} /> Sign Out
+            <FiLogOut size={14} /> Log Out
           </button>
         </div>
       </aside>

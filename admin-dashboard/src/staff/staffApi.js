@@ -1,7 +1,7 @@
 import axios from 'axios';
 
-// Staff web check-in keeps its own session (separate from the admin dashboard's
-// `token`/`user`), so signing in here never affects an admin session and vice versa.
+// Staff web sign-in keeps its own session (separate from the admin dashboard's
+// `token`/`user`), so logging in here never affects an admin session and vice versa.
 const KEYS = { token: 'staffToken', user: 'staffUser', institution: 'staffInstitution', code: 'staffInstitutionCode', staffId: 'staffLastStaffId' };
 
 // Public OAuth Web client ID (same one the mobile app uses); not a secret
@@ -23,7 +23,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ---- Staying signed in ----
+// ---- Staying logged in ----
 // When the server says the token ran out, swap it for a fresh one and repeat
 // the request. Requests failing together share one renewal; a network problem
 // never signs anyone out, only the server refusing the account does.
@@ -67,7 +67,7 @@ api.interceptors.response.use(
     try {
       fresh = await renewSession();
     } catch {
-      return Promise.reject(error); // offline: keep the saved sign-in
+      return Promise.reject(error); // offline: keep the saved login
     }
     if (!fresh) return Promise.reject(error);
     config.headers = { ...(config.headers || {}), Authorization: `Bearer ${fresh}` };
@@ -103,7 +103,7 @@ export const session = {
 export const staffLogin = (institutionCode, staffId, password) =>
   api.post('/auth/login', { institutionCode, staffId, password, deviceId: webDeviceId(), deviceModel: 'Web browser', osVersion: navigator.userAgent.slice(0, 100) });
 const deviceFields = () => ({ deviceId: webDeviceId(), deviceModel: 'Web browser', osVersion: navigator.userAgent.slice(0, 100) });
-/** Step 1 of Google sign-in: signs in, or returns { needsProfile, existingAccount, profile }. */
+/** Step 1 of Google login: signs in, or returns { needsProfile, existingAccount, profile }. */
 export const googleAuth = (idToken, institutionCode) =>
   api.post('/auth/google', { idToken, institutionCode: institutionCode || undefined, ...deviceFields() });
 /** Step 2 for first-time Google users: phone + institution (creates or completes the account). */

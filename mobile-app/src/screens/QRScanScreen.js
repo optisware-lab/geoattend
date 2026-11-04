@@ -11,7 +11,7 @@ import { checkIn, checkInFromImage } from '../services/api';
 import { getCurrentLocation } from '../services/location';
 import { addToQueue, getQueueLength, isOnline } from '../services/offlineQueue';
 
-const LOCATION_REQUIRED = 'GPS location is required for QR check-in. Please enable location services and try again.';
+const LOCATION_REQUIRED = 'GPS location is required for QR sign-in. Please enable location services and try again.';
 
 function getDeviceId() {
   try { return Device.osBuildId || Device.modelId || Device.modelName || 'unknown'; } catch { return 'unknown'; }
@@ -27,15 +27,15 @@ async function getRequiredLocation() {
   return location;
 }
 
-// Set by the screen: takes staff back to Home after a successful check-in
+// Set by the screen: takes staff back to Home after a successful sign-in
 let goHomeAfterCheckIn = null;
 
 function showCheckInResult(result) {
   Alert.alert(
-    'Check-In Successful',
+    'Sign-In Successful',
     result.isLate
-      ? 'Checked in via QR code. You are marked as LATE.'
-      : 'Checked in via QR code successfully!',
+      ? 'Signed in via QR code. You are marked as LATE.'
+      : 'Signed in via QR code successfully!',
     [{ text: 'OK', onPress: () => goHomeAfterCheckIn?.() }]
   );
 }
@@ -95,7 +95,7 @@ async function checkInWithQrData(data) {
   if (!connected) {
     await addToQueue('check-in', payload);
     const qLen = await getQueueLength();
-    Alert.alert('Saved Offline', `Check-in queued. Will sync when internet is back. Pending: ${qLen}`);
+    Alert.alert('Saved Offline', `Sign-in queued. Will sync when internet is back. Pending: ${qLen}`);
     return;
   }
 
@@ -152,7 +152,7 @@ export default function QRScanScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
 
   const showError = (err) => {
-    const message = err.response?.data?.error || 'Check-in failed. Please try again.';
+    const message = err.response?.data?.error || 'Sign-in failed. Please try again.';
     Alert.alert('Error', message);
   };
 
@@ -198,7 +198,7 @@ export default function QRScanScreen({ navigation }) {
         <View style={styles.permissionBox}>
           <Text style={styles.permissionTitle}>Camera Permission Required</Text>
           <Text style={styles.permissionText}>
-            We need camera access to scan QR codes for check-in. You can also upload a photo of the QR code instead.
+            We need camera access to scan QR codes for sign-in. You can also upload a photo of the QR code instead.
           </Text>
           <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
             <Text style={styles.permissionBtnText}>Grant Permission</Text>
@@ -227,7 +227,7 @@ export default function QRScanScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>QR Code Check-In</Text>
+        <Text style={styles.title}>QR Code Sign-In</Text>
         <Text style={styles.subtitle}>Scan the institution QR code or your staff ID card</Text>
       </View>
 
@@ -243,7 +243,7 @@ export default function QRScanScreen({ navigation }) {
         {loading && (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
-            <Text style={styles.loadingText}>Checking in...</Text>
+            <Text style={styles.loadingText}>Signing in...</Text>
           </View>
         )}
       </View>
@@ -252,7 +252,7 @@ export default function QRScanScreen({ navigation }) {
         {uploadButton}
         <Text style={styles.instructionText}>
           Point your camera at the QR code posted at the entrance or on your staff ID card, or upload a photo of it.
-          {'\n'}GPS must be enabled — check-in is rejected outside your institution's geofence.
+          {'\n'}GPS must be enabled — sign-in is rejected outside your institution's geofence.
         </Text>
       </View>
     </SafeAreaView>

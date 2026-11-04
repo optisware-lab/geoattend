@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 
-// How long a sign-in lasts.
-// Staff stay signed in on their phone or browser until they sign out: their
+// How long a login lasts.
+// Staff stay logged in on their phone or browser until they log out: their
 // token lasts a year and the apps renew it every time they open, so it never
 // runs out for anyone who uses the app. Deactivating an account in the admin
 // dashboard still ends it immediately (checked on every request).

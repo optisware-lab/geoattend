@@ -20,7 +20,7 @@ export const getQueueLength = async () => {
 };
 
 /**
- * Today's status implied by queued (not yet synced) check-ins/outs, so the
+ * Today's status implied by queued (not yet synced) sign-ins/outs, so the
  * Home screen shows the right button while offline. Null when nothing is queued today.
  */
 export const getPendingStatus = async () => {

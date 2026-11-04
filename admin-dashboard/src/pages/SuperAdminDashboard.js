@@ -38,7 +38,7 @@ export default function SuperAdminDashboard({ onLogout }) {
 
   const signOutBtn = (
     <button type="button" onClick={handleSignOut} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', color: 'rgba(255,255,255,0.7)', fontSize: 13, padding: '8px 0' }}>
-      <FiLogOut size={14} /> Sign out
+      <FiLogOut size={14} /> Log out
     </button>
   );
 

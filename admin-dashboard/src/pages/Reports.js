@@ -284,8 +284,8 @@ export default function Reports() {
               <th>Date</th>
               <th>Staff</th>
               <th>Department</th>
-              <th>Check in</th>
-              <th>Check out</th>
+              <th>Sign in</th>
+              <th>Sign out</th>
               <th>Hours</th>
               <th>Method</th>
               <th>Status</th>

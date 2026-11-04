@@ -123,7 +123,7 @@ export default function Login({ onLogin }) {
           <FiMapPin size={32} />
           <span style={styles.title}>GeoAttend</span>
         </div>
-        <p style={styles.subtitle}>Admin Dashboard - Sign in to continue</p>
+        <p style={styles.subtitle}>Admin Dashboard - Log in to continue</p>
 
         <form onSubmit={handleSubmit}>
           <div style={{ fontSize: 12, color: '#2c3e50', marginBottom: 12, padding: 10, background: '#e8f5e9', borderRadius: 8, lineHeight: 1.5 }}>
@@ -168,7 +168,7 @@ export default function Login({ onLogin }) {
             </button>
           </div>
           <button style={{ ...styles.button, opacity: loading ? 0.7 : 1 }} disabled={loading} type="submit">
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
 

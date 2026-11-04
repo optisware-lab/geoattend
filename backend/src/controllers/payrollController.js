@@ -8,7 +8,7 @@
  *
  * Overtime minutes come from overtime_records (auto checkout / manual checkout
  * past work_end_time). Away time (premises_left_at / premises_returned_at) is
- * reported per staff so the admin can review "checked in at the gate but never
+ * reported per staff so the admin can review "signed in at the gate but never
  * actually worked" cases before paying.
  *
  * Institutions paying monthly see the same hours/away stats without earnings.

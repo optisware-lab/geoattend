@@ -8,7 +8,7 @@ import { useToast } from '../services/Toast';
 import { getDeviceInfo, saveSession } from '../services/googleAuth';
 import GenderChoice from '../components/GenderChoice';
 
-// Shown after Google sign-in when we still need the user's phone number
+// Shown after Google login when we still need the user's phone number
 // (and, for new accounts, their institution) before letting them in.
 export default function GoogleProfileScreen({ navigation, route, onLogin }) {
   const toast = useToast();
@@ -66,9 +66,9 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
     } catch (err) {
       const status = err.response?.status;
       const msg = err.response?.data?.error || err.message || 'Please try again';
-      // Google ID tokens expire after an hour — send the user back to sign in again
+      // Google ID tokens expire after an hour — send the user back to log in again
       if (status === 401) {
-        toast.error('Your Google session expired. Please sign in with Google again.');
+        toast.error('Your Google session expired. Please log in with Google again.');
         navigation.goBack();
         return;
       }
@@ -85,7 +85,7 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
           <Text style={styles.title}>{existingAccount ? 'One more step' : 'Complete Sign Up'}</Text>
           <Text style={styles.subtitle}>
             {existingAccount
-              ? 'Add your phone number to finish signing in with Google'
+              ? 'Add your phone number to finish logging in with Google'
               : 'A few details so your institution can identify you'}
           </Text>
 

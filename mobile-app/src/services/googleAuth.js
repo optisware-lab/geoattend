@@ -29,10 +29,10 @@ export function isGoogleSignInAvailable() {
  */
 export async function getGoogleIdToken() {
   if (!GoogleSignin) {
-    throw new Error('Google sign-in needs the installed GeoAttend app (it is not available in Expo Go).');
+    throw new Error('Google login needs the installed GeoAttend app (it is not available in Expo Go).');
   }
   if (!GOOGLE_WEB_CLIENT_ID) {
-    throw new Error('Google sign-in is not configured for this build.');
+    throw new Error('Google login is not configured for this build.');
   }
   if (!configured) {
     GoogleSignin.configure({
@@ -54,7 +54,7 @@ export async function getGoogleIdToken() {
     if (result?.type === 'cancelled') return null;
 
     const idToken = result?.data?.idToken || result?.idToken;
-    if (!idToken) throw new Error('Google did not return a sign-in token. Please try again.');
+    if (!idToken) throw new Error('Google did not return a login token. Please try again.');
     return idToken;
   } catch (err) {
     if (err?.code === statusCodes.SIGN_IN_CANCELLED) return null;
@@ -78,7 +78,7 @@ export function getDeviceInfo() {
   }
 }
 
-/** Stores the session returned by any sign-in endpoint. */
+/** Stores the session returned by any login endpoint. */
 export async function saveSession(data) {
   await AsyncStorage.setItem('token', data.token);
   await AsyncStorage.setItem('user', JSON.stringify(data.user));

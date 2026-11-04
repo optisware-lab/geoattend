@@ -6,7 +6,7 @@ import { PageHeader, Avatar, Badge, EmptyState, useAutoRefresh, useNow } from '.
 import { formatDateLong, formatTime, formatDuration, formatDateRange, timeAgo, toDate } from '../utils/format';
 
 const VIEWS = [
-  { key: 'all', label: 'Checked in' },
+  { key: 'all', label: 'Signed in' },
   { key: 'onsite', label: 'On site' },
   { key: 'late', label: 'Late' },
   { key: 'left', label: 'Left' },
@@ -122,7 +122,7 @@ export default function AttendanceMonitor() {
       ) : list.length === 0 ? (
         <div className="ga-card">
           {view === 'missing' && !q ? (
-            <EmptyState icon={FiCheckCircle} title="Everyone is accounted for" text="All active staff have checked in or are on approved leave." />
+            <EmptyState icon={FiCheckCircle} title="Everyone is accounted for" text="All active staff have signed in or are on approved leave." />
           ) : (
             <EmptyState icon={q ? FiSearch : FiClock} title={q ? 'No one matches your search' : 'Nobody here yet'} />
           )}

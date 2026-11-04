@@ -191,7 +191,7 @@ export default function Settings() {
           <div style={styles.field}>
             <label style={styles.label}>Geofence Radius (meters)</label>
             <input style={styles.input} type="number" value={inst.geofence_radius || ''} onChange={e => setInst(p => ({ ...p, geofence_radius: e.target.value }))} />
-            <span style={styles.hint}>Area within which staff can check in (recommended: 100-500m)</span>
+            <span style={styles.hint}>Area within which staff can sign in (recommended: 100-500m)</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div style={styles.field}>
@@ -266,11 +266,11 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Institution Check-In QR Code */}
+      {/* Institution Sign-In QR Code */}
       <div style={{ ...styles.card, marginTop: '24px', maxWidth: '900px', textAlign: 'center' }}>
-        <h3 style={styles.cardTitle}><FiPrinter size={16} /> Institution Check-In QR Code</h3>
+        <h3 style={styles.cardTitle}><FiPrinter size={16} /> Institution Sign-In QR Code</h3>
         <p style={{ fontSize: '13px', color: '#7f8c8d', marginBottom: '16px' }}>
-          Generate a single QR code for your institution. Print and post it at entrances — staff scan it to check in.
+          Generate a single QR code for your institution. Print and post it at entrances — staff scan it to sign in.
         </p>
         <InstitutionQR />
       </div>
@@ -317,7 +317,7 @@ function InstitutionQR() {
   const printQR = () => {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
-      <html><head><title>Check-In QR - ${institutionName}</title>
+      <html><head><title>Sign-In QR - ${institutionName}</title>
       <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 40px; }
         .card { border: 3px solid #1a5276; border-radius: 16px; padding: 32px; display: inline-block; max-width: 400px; }
@@ -331,7 +331,7 @@ function InstitutionQR() {
       </style></head><body>
       <div class="card">
         <div class="logo">GeoAttend</div>
-        <div class="subtitle">Attendance Check-In</div>
+        <div class="subtitle">Attendance Sign-In</div>
         <img src="${qrCode}" />
         <div class="name">${institutionName}</div>
         <div class="instruction">Open GeoAttend app → QR Scan → Scan this code</div>
@@ -343,7 +343,7 @@ function InstitutionQR() {
   };
 
   const qrFileName = () =>
-    `${(institutionName || 'institution').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()}-checkin-qr.png`;
+    `${(institutionName || 'institution').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()}-signin-qr.png`;
 
   const downloadQR = () => {
     if (!qrCode) return;
@@ -366,8 +366,8 @@ function InstitutionQR() {
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
           files: [file],
-          title: `${institutionName} Check-In QR Code`,
-          text: `Scan this QR code with the GeoAttend app to check in at ${institutionName}.`,
+          title: `${institutionName} Sign-In QR Code`,
+          text: `Scan this QR code with the GeoAttend app to sign in at ${institutionName}.`,
         });
         return;
       }
@@ -400,13 +400,13 @@ function InstitutionQR() {
             border: 'none', cursor: 'pointer', opacity: loading ? 0.7 : 1,
           }}
         >
-          {loading ? 'Generating...' : 'Generate Check-In QR Code'}
+          {loading ? 'Generating...' : 'Generate Sign-In QR Code'}
         </button>
       ) : (
         <div>
           <img src={qrCode} alt="Institution QR" style={{ width: '250px', border: '2px solid #e0e0e0', borderRadius: '12px', padding: '8px' }} />
           <p style={{ fontSize: '16px', fontWeight: '600', color: '#2c3e50', marginTop: '12px' }}>{institutionName}</p>
-          <p style={{ fontSize: '12px', color: '#95a5a6' }}>Staff scan this QR code to check in</p>
+          <p style={{ fontSize: '12px', color: '#95a5a6' }}>Staff scan this QR code to sign in</p>
           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginTop: '16px', flexWrap: 'wrap' }}>
             <button
               onClick={printQR}

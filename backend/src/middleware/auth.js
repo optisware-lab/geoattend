@@ -26,7 +26,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
 
     const token = authHeader.split(' ')[1];
     // The signature is always checked. Only the refresh route accepts a token
-    // that ran out recently, so the apps can renew it instead of signing out.
+    // that ran out recently, so the apps can renew it instead of logging out.
     decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: allowRecentlyExpired });
     if (allowRecentlyExpired && decoded.exp && decoded.exp * 1000 + REFRESH_GRACE_MS < Date.now()) {
       return res.status(401).json({ error: 'Token expired' });
@@ -73,7 +73,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
 
     // Staff-only system: legacy student accounts can no longer use the API
     if (result.rows[0].member_type && result.rows[0].member_type !== 'staff') {
-      return res.status(401).json({ error: 'Only staff accounts can sign in' });
+      return res.status(401).json({ error: 'Only staff accounts can log in' });
     }
 
     // Re-apply the context from the authoritative DB row (role could have been

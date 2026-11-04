@@ -20,7 +20,7 @@ const s = {
   green: { background: '#27ae60' },
   red: { background: '#c0392b' },
   outline: { width: '100%', padding: 14, fontSize: 15, fontWeight: 700, color: NAVY, background: '#fff', border: `2px solid ${NAVY}`, borderRadius: 12, cursor: 'pointer', marginTop: 10 },
-  // White on the navy page: as visible as Sign In, without competing inside the card
+  // White on the navy page: as visible as Log In, without competing inside the card
   signUpBtn: { width: '100%', padding: 16, fontSize: 17, fontWeight: 700, color: NAVY, background: '#fff', border: 'none', borderRadius: 12, cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', fontFamily: 'inherit' },
   link: { background: 'none', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 },
   muted: { fontSize: 13, color: '#7f8c8d' },
@@ -33,7 +33,7 @@ const s = {
   video: { width: '100%', maxWidth: 420, borderRadius: 14, background: '#000' },
 };
 
-// ---------- Sign in ----------
+// ---------- Log in ----------
 
 function Divider({ text }) {
   return (
@@ -45,7 +45,7 @@ function Divider({ text }) {
   );
 }
 
-/** One-time step for a first Google sign-in: phone number (+ institution for new accounts). */
+/** One-time step for a first Google login: phone number (+ institution for new accounts). */
 /** Two big buttons instead of a dropdown: one tap on a phone. */
 function GenderChoice({ value, onChange, idPrefix }) {
   const option = (key, label) => {
@@ -110,7 +110,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
       onDone();
     } catch (err) {
       const msg = errorMessage(err, 'Could not finish signing up. Please try again.');
-      setError(/could not be verified/i.test(msg) ? 'Your Google sign-in expired. Tap Back and continue with Google again.' : msg);
+      setError(/could not be verified/i.test(msg) ? 'Your Google login expired. Tap Back and continue with Google again.' : msg);
     } finally {
       setBusy(false);
     }
@@ -122,7 +122,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
       <p style={{ ...s.muted, margin: '6px 0 16px' }}>
         {existingAccount
           ? `We found your account (${profile.email}). Add your phone number to finish.`
-          : `Signed in as ${profile.email}. Tell us where you work. You only do this once.`}
+          : `Logged in as ${profile.email}. Tell us where you work. You only do this once.`}
       </p>
       {!existingAccount && (
         <>
@@ -162,7 +162,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
   );
 }
 
-/** "Sign In | Sign Up" switch under the logo, so new staff see Sign Up straight away. */
+/** "Log In | Sign Up" switch under the logo, so new staff see Sign Up straight away. */
 function AuthSwitch({ view, onChange }) {
   const option = (key, label) => {
     const active = view === key;
@@ -183,8 +183,8 @@ function AuthSwitch({ view, onChange }) {
     );
   };
   return (
-    <div role="group" aria-label="Sign in or sign up" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.15)', marginBottom: 4 }}>
-      {option('signin', 'Sign In')}
+    <div role="group" aria-label="Log in or sign up" style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 14, background: 'rgba(255,255,255,0.15)', marginBottom: 4 }}>
+      {option('signin', 'Log In')}
       {option('signup', 'Sign Up')}
     </div>
   );
@@ -270,7 +270,7 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
       </button>
       {error && <div style={s.banner('error')}>{error}</div>}
       <div style={{ textAlign: 'center', marginTop: 12 }}>
-        <button type="button" style={textLink} onClick={onBack}>Already have an account? Sign in</button>
+        <button type="button" style={textLink} onClick={onBack}>Already have an account? Log in</button>
       </div>
     </form>
   );
@@ -294,7 +294,7 @@ function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
     setError('');
     try {
       await forgotPassword(code.trim().toUpperCase(), staffId.trim().toUpperCase(), email.trim(), password);
-      onDone(staffId.trim().toUpperCase(), 'Password changed. Sign in with your new password.');
+      onDone(staffId.trim().toUpperCase(), 'Password changed. Log in with your new password.');
     } catch (err) {
       setError(errorMessage(err, 'Could not reset your password. Please try again.'));
     } finally {
@@ -321,7 +321,7 @@ function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
       </button>
       {error && <div style={s.banner('error')}>{error}</div>}
       <div style={{ textAlign: 'center', marginTop: 12 }}>
-        <button type="button" style={textLink} onClick={onBack}>Back to sign in</button>
+        <button type="button" style={textLink} onClick={onBack}>Back to log in</button>
       </div>
     </form>
   );
@@ -367,13 +367,13 @@ function ForgotStaffIdForm({ initialCode, onUse, onBack }) {
           {found.firstName ? `${found.firstName}, your` : 'Your'} Staff ID is <strong>{found.staffId}</strong>
           <div style={{ marginTop: 8 }}>
             <button type="button" style={{ ...textLink, color: '#1e8449' }} onClick={() => onUse(found.staffId, code.trim().toUpperCase())}>
-              Use it to sign in →
+              Use it to log in →
             </button>
           </div>
         </div>
       )}
       <div style={{ textAlign: 'center', marginTop: 12 }}>
-        <button type="button" style={textLink} onClick={onBack}>Back to sign in</button>
+        <button type="button" style={textLink} onClick={onBack}>Back to log in</button>
       </div>
     </form>
   );
@@ -402,7 +402,7 @@ function SignIn({ onSignedIn }) {
       session.save(data);
       onSignedIn();
     } catch (err) {
-      setError(errorMessage(err, 'Google sign-in failed. Please try again.'));
+      setError(errorMessage(err, 'Google login failed. Please try again.'));
     } finally {
       setGoogleBusy(false);
     }
@@ -422,7 +422,7 @@ function SignIn({ onSignedIn }) {
       session.save(data, institutionCode);
       onSignedIn();
     } catch (err) {
-      setError(errorMessage(err, 'Sign-in failed. Please try again.'));
+      setError(errorMessage(err, 'Login failed. Please try again.'));
     } finally {
       setBusy(false);
     }
@@ -466,7 +466,7 @@ function SignIn({ onSignedIn }) {
           <form style={s.card} onSubmit={submit}>
             <GoogleButton onCredential={handleGoogle} disabled={googleBusy || busy} />
             <p style={{ ...s.muted, textAlign: 'center', margin: '10px 0 0' }}>
-              {googleBusy ? 'Signing in with Google... (up to a minute if the server is waking up)' : 'One tap. New staff can sign up this way too.'}
+              {googleBusy ? 'Logging in with Google... (up to a minute if the server is waking up)' : 'One tap. New staff can sign up this way too.'}
             </p>
 
             <Divider text="OR USE YOUR STAFF ID" />
@@ -481,9 +481,9 @@ function SignIn({ onSignedIn }) {
             <input id="password" style={s.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)}
               placeholder="Your password" autoComplete="current-password" />
             <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy || googleBusy}>
-              {busy ? 'Signing in...' : 'Sign In'}
+              {busy ? 'Logging in...' : 'Log In'}
             </button>
-            {busy && <p style={{ ...s.muted, textAlign: 'center', marginBottom: 0 }}>The first sign-in can take up to a minute while the server wakes up.</p>}
+            {busy && <p style={{ ...s.muted, textAlign: 'center', marginBottom: 0 }}>The first login can take up to a minute while the server wakes up.</p>}
             {error && <div style={s.banner('error')}>{error}</div>}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, flexWrap: 'wrap', gap: 4 }}>
               <button type="button" style={textLink} onClick={() => { setError(''); setInfo(''); setView('forgotPassword'); }}>Forgot password?</button>
@@ -527,12 +527,12 @@ export default function StaffApp() {
     setSignedIn(false);
   }, []);
 
-  // Renew the sign-in each time the page opens, so staff stay signed in until
-  // they tap Sign Out. Offline is fine: the saved sign-in is kept.
+  // Renew the login each time the page opens, so staff stay logged in until
+  // they tap Log Out. Offline is fine: the saved login is kept.
   useEffect(() => {
     if (!signedIn) return;
     renewSession()
-      .then((token) => { if (token === null) handleSignOut('You have been signed out. Please sign in again.'); })
+      .then((token) => { if (token === null) handleSignOut('You have been logged out. Please log in again.'); })
       .catch(() => {});
   }, [signedIn, handleSignOut]);
 

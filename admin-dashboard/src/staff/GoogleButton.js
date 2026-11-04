@@ -13,7 +13,7 @@ function loadGoogleIdentity() {
       script.async = true;
       script.defer = true;
       script.onload = () => resolve();
-      script.onerror = () => { gisPromise = null; reject(new Error('Google sign-in could not load')); };
+      script.onerror = () => { gisPromise = null; reject(new Error('Google login could not load')); };
       document.head.appendChild(script);
     });
   }
@@ -46,7 +46,7 @@ export default function GoogleButton({ onCredential, disabled, text = 'continue_
           type: 'standard', theme: 'outline', size: 'large', text, shape: 'pill', width,
         });
       })
-      .catch(() => { if (!cancelled) setError('Google sign-in is unavailable right now. Use the form below.'); });
+      .catch(() => { if (!cancelled) setError('Google login is unavailable right now. Use the form below.'); });
     return () => { cancelled = true; };
   }, [text]);
 

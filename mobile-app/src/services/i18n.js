@@ -6,7 +6,7 @@ const translations = {
     // Login
     staffId: 'Staff ID',
     password: 'Password',
-    signIn: 'Sign In',
+    signIn: 'Log In',
     forgotPassword: 'Forgot Password?',
     enterStaffId: 'Enter your Staff ID',
     enterPassword: 'Enter your password',
@@ -20,11 +20,11 @@ const translations = {
     outsideGeofence: 'Outside Geofence',
     gettingLocation: 'Getting location...',
     todayStatus: "TODAY'S STATUS",
-    checkedIn: 'Checked In',
-    checkedOut: 'Checked Out',
-    notCheckedIn: 'Not Checked In',
-    checkIn: 'Check In',
-    checkOut: 'Check Out',
+    checkedIn: 'Signed In',
+    checkedOut: 'Signed Out',
+    notCheckedIn: 'Not Signed In',
+    checkIn: 'Sign In',
+    checkOut: 'Sign Out',
     gpsVerification: 'GPS Verification',
     allDone: 'All Done!',
     seeYouTomorrow: 'See you tomorrow',
@@ -38,7 +38,7 @@ const translations = {
     // Profile
     profile: 'Profile',
     changePassword: 'Change Password',
-    signOut: 'Sign Out',
+    signOut: 'Log Out',
     darkMode: 'Dark Mode',
     lightMode: 'Light Mode',
     enableFingerprint: 'Enable Fingerprint Login',
@@ -47,7 +47,7 @@ const translations = {
     attendanceHistory: 'Attendance History',
     records: 'records',
     // QR
-    qrCheckIn: 'QR Code Check-In',
+    qrCheckIn: 'QR Code Sign-In',
     scanQR: 'Scan your staff ID card QR code',
     // General
     or: 'OR',

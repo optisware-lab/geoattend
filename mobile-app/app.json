@@ -31,7 +31,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow GeoAttend to use your location for attendance check-in."
+          "locationAlwaysAndWhenInUsePermission": "Allow GeoAttend to use your location for attendance sign-in."
         }
       ],
       [
@@ -55,9 +55,9 @@
       "buildNumber": "2",
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance check-in.",
-        "NSCameraUsageDescription": "GeoAttend needs camera access to scan QR codes for attendance check-in.",
+        "NSLocationWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance sign-in.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "GeoAttend needs your location to verify you are within your institution's geofence for attendance sign-in.",
+        "NSCameraUsageDescription": "GeoAttend needs camera access to scan QR codes for attendance sign-in.",
         "NSFaceIDUsageDescription": "GeoAttend uses Face ID to securely log you in."
       }
     },

@@ -40,7 +40,7 @@ export function decodeImageFile(file) {
 }
 
 /**
- * Turns scanned QR text into check-in fields, mirroring the mobile app:
+ * Turns scanned QR text into sign-in fields, mirroring the mobile app:
  * the institution entrance code or the staff member's own ID card.
  * Returns { qrCode, qrToken } or { error }.
  */

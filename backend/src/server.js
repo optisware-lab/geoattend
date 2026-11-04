@@ -218,7 +218,7 @@ async function runAutoMigration(client) {
     `ALTER TABLE staff ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`,
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
-    // â”€â”€ Premises tracking (checked in at gate, left without working) â”€â”€
+    // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€
     `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_left_at TIMESTAMP`,
     `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_returned_at TIMESTAMP`,
   ];

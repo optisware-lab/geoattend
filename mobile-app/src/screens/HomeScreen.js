@@ -59,7 +59,7 @@ export default function HomeScreen() {
     setDistance(calculateDistance(location.latitude, location.longitude, institution.latitude, institution.longitude));
   }, [location, institution]);
 
-  // While this screen is open, follow the phone's position so the Check In
+  // While this screen is open, follow the phone's position so the Sign In
   // button unlocks by itself the moment staff reach work. Stops when they leave
   // the screen to save battery.
   useFocusEffect(
@@ -67,7 +67,7 @@ export default function HomeScreen() {
       let stop = () => {};
       let cancelled = false;
       setNow(new Date());
-      // Coming back to this tab (e.g. after a QR check-in) shows the latest status
+      // Coming back to this tab (e.g. after a QR sign-in) shows the latest status
       getTodayStatus()
         .then(async ({ data }) => {
           if (cancelled) return;
@@ -88,7 +88,7 @@ export default function HomeScreen() {
       toast.success(`${result.synced} offline record(s) synced successfully.`, 'Synced');
     }
     result.rejected?.forEach(({ action, error }) => {
-      toast.error(error, action === 'check-out' ? 'Offline Check-Out Not Accepted' : 'Offline Check-In Not Accepted');
+      toast.error(error, action === 'check-out' ? 'Offline Sign-Out Not Accepted' : 'Offline Sign-In Not Accepted');
     });
   }, [toast]);
 
@@ -111,7 +111,7 @@ export default function HomeScreen() {
 
     getAttendanceRules().then(({ data }) => { if (data && typeof data === 'object') setRules(data); }).catch(() => {});
 
-    // Sync queued offline check-ins/outs first so today's status is up to date
+    // Sync queued offline sign-ins/outs first so today's status is up to date
     const connected = await isOnline();
     setOnline(connected);
     if (connected) {
@@ -139,7 +139,7 @@ export default function HomeScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-sync queued check-ins once internet is back
+  // Auto-sync queued sign-ins once internet is back
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(async (state) => {
       const connected = !!state.isConnected;
@@ -186,7 +186,7 @@ export default function HomeScreen() {
         await addToQueue('check-in', checkInData);
         setPendingSync(await getQueueLength());
         setTodayStatus('checked_in');
-        toast.warning('Check-in saved. Will sync when back online.', 'Saved Offline');
+        toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
         setLoading(false);
         return;
       }
@@ -195,10 +195,10 @@ export default function HomeScreen() {
       setTodayStatus('checked_in');
       setRecord(data.record);
 
-      const lateMsg = data.isLate ? 'You have been marked as LATE.' : 'Checked in on time!';
-      toast.success(lateMsg, 'Check-In Successful');
+      const lateMsg = data.isLate ? 'You have been marked as LATE.' : 'Signed in on time!';
+      toast.success(lateMsg, 'Sign-In Successful');
       Notifications.scheduleNotificationAsync({
-        content: { title: 'Check-In Confirmed', body: lateMsg, sound: true },
+        content: { title: 'Sign-In Confirmed', body: lateMsg, sound: true },
         trigger: null,
       });
     } catch (err) {
@@ -207,9 +207,9 @@ export default function HomeScreen() {
         await addToQueue('check-in', checkInData);
         setPendingSync(await getQueueLength());
         setTodayStatus('checked_in');
-        toast.warning('Check-in saved. Will sync when back online.', 'Saved Offline');
+        toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
       } else {
-        toast.error(err.response?.data?.error || 'Please try again', 'Check-In Failed');
+        toast.error(err.response?.data?.error || 'Please try again', 'Sign-In Failed');
       }
     } finally {
       setLoading(false);
@@ -243,17 +243,17 @@ export default function HomeScreen() {
 
       setTodayStatus('checked_out');
       if (outData?.record) setRecord(outData.record);
-      toast.success('You have been checked out. See you tomorrow!', 'Check-Out Successful');
+      toast.success('You have been signed out. See you tomorrow!', 'Sign-Out Successful');
       Notifications.scheduleNotificationAsync({
-        content: { title: 'Check-Out Confirmed', body: 'See you tomorrow!', sound: true },
+        content: { title: 'Sign-Out Confirmed', body: 'See you tomorrow!', sound: true },
         trigger: null,
       });
     } catch (err) {
-      // No response = network problem: keep the check-out and sync it later
+      // No response = network problem: keep the sign-out and sync it later
       if (!err.response && checkOutData) {
         await queueCheckOut(checkOutData);
       } else {
-        toast.error(err.response?.data?.error || 'Please try again', 'Check-Out Failed');
+        toast.error(err.response?.data?.error || 'Please try again', 'Sign-Out Failed');
       }
     } finally {
       setLoading(false);
@@ -264,7 +264,7 @@ export default function HomeScreen() {
     await addToQueue('check-out', checkOutData);
     setPendingSync(await getQueueLength());
     setTodayStatus('checked_out');
-    toast.warning('Check-out saved. Will sync when back online.', 'Saved Offline');
+    toast.warning('Sign-out saved. Will sync when back online.', 'Saved Offline');
   };
 
   // Report inside/outside to the server so it can record both leaving the
@@ -312,23 +312,23 @@ export default function HomeScreen() {
   const checkedOutAt = record?.check_out_time ? new Date(record.check_out_time) : null;
   const workedMs = checkedInAt ? (checkedOutAt || now) - checkedInAt : 0;
 
-  // Ask once more before ending the day, so a stray tap can't check you out
+  // Ask once more before ending the day, so a stray tap can't sign you out
   const confirmCheckOut = () => {
     const endAt = clockToday(rules?.work_end_time, new Date());
     const early = endAt && new Date() < endAt;
     if (Platform.OS === 'web') {
       // Alert buttons do not work in the browser build
-      if (window.confirm(early ? `Work ends at ${formatTime(endAt)}. Check out anyway?` : 'Check out now? This ends your day.')) handleCheckOut();
+      if (window.confirm(early ? `Work ends at ${formatTime(endAt)}. Sign out anyway?` : 'Sign out now? This ends your day.')) handleCheckOut();
       return;
     }
     Alert.alert(
-      early ? 'Leaving early?' : 'Check out now?',
+      early ? 'Leaving early?' : 'Sign out now?',
       early
-        ? `Work ends at ${formatTime(endAt)}. Check out anyway?`
+        ? `Work ends at ${formatTime(endAt)}. Sign out anyway?`
         : `You've been at work for ${formatDuration(workedMs)}. This ends your day.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Check Out', style: 'destructive', onPress: handleCheckOut },
+        { text: 'Sign Out', style: 'destructive', onPress: handleCheckOut },
       ]
     );
   };
@@ -353,12 +353,12 @@ export default function HomeScreen() {
         {(!online || pendingSync > 0) && (
           <View style={[styles.card, { borderLeftColor: '#f39c12', backgroundColor: theme.dark ? '#3a3420' : '#fef9e7' }]}>
             <Text style={[styles.cardValue, { color: '#f39c12', fontSize: 14 }]}>
-              {!online ? '⚠ You are offline. Check-ins are saved and sent later.' : `⏳ ${pendingSync} check-in(s) waiting to sync`}
+              {!online ? '⚠ You are offline. Sign-ins are saved and sent later.' : `⏳ ${pendingSync} sign-in(s) waiting to sync`}
             </Text>
           </View>
         )}
 
-        {/* Main action first: no scrolling to check in or out */}
+        {/* Main action first: no scrolling to sign in or out */}
         <View style={styles.actionSection}>
           {todayStatus === 'not_checked_in' && (
             <TouchableOpacity

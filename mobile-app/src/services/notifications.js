@@ -94,7 +94,7 @@ export async function scheduleCheckInReminder({ start = DEFAULT_RULES.start, end
       if (weekday < 1 || weekday > 7) continue;
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: 'Time to check in',
+          title: 'Time to sign in',
           body: `Work starts at ${startLabel}. Open GeoAttend when you arrive. It unlocks as soon as you're on site.`,
           sound: true,
         },
@@ -102,8 +102,8 @@ export async function scheduleCheckInReminder({ start = DEFAULT_RULES.start, end
       });
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: "Don't forget to check out",
-          body: `Work ends at ${endLabel}. Check out before you leave.`,
+          title: "Don't forget to sign out",
+          body: `Work ends at ${endLabel}. Sign out before you leave.`,
           sound: true,
         },
         trigger: { type: 'weekly', weekday, hour: evening.hour, minute: evening.minute, repeats: true },
@@ -144,7 +144,7 @@ export async function syncWorkReminders() {
   }
 }
 
-/** Stops reminders, e.g. when signing out. */
+/** Stops reminders, e.g. when logging out. */
 export async function clearWorkReminders() {
   try {
     await Notifications.cancelAllScheduledNotificationsAsync();

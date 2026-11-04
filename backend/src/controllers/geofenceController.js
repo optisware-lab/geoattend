@@ -64,9 +64,9 @@ exports.recordEvent = async (req, res) => {
     );
 
     // ── Premises tracking ────────────────────────────────────────────────────
-    // While a staff member is checked in, leaving the geofence marks their
+    // While a staff member is signed in, leaving the geofence marks their
     // attendance record. A record that shows "left and never returned" is the
-    // sign of someone checked in at the entrance but not working on site.
+    // sign of someone signed in at the entrance but not working on site.
     // This looks only at today's open record, never at earlier events, so an
     // old "exit" (e.g. opening the app at home yesterday) cannot hide a new one.
     // The WHERE guards make repeat reports harmless.
@@ -107,9 +107,9 @@ exports.recordEvent = async (req, res) => {
 
     let alerted = false;
 
-    // Text admins only when a checked-in staff member is first seen off
+    // Text admins only when a signed-in staff member is first seen off
     // premises. premises_left_at is set once per record, so this fires at most
-    // once per check-in and staff opening the app at home never trigger it.
+    // once per sign-in and staff opening the app at home never trigger it.
     if (attendanceFlagged) {
       const staffResult = await db.query(
         `SELECT staff_id, first_name, last_name
