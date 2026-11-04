@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
 import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield, FiDollarSign, FiCreditCard } from 'react-icons/fi';
 import { getLeaveStats } from '../services/api';
 import { formatDate } from '../utils/format';
@@ -114,19 +115,45 @@ export default function Sidebar({ user, onLogout }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const location = useLocation();
+  const navigate = useNavigate();
   const [pendingLeave, setPendingLeave] = useState(0);
   const isAdmin = ['admin', 'super_admin'].includes((user?.role || '').toLowerCase());
 
-  // Keep the Leave badge current without a page reload
+  // Keep the Leave badge current without a page reload, and speak up when a
+  // new request arrives while the dashboard is open (most admins have no
+  // phone push or email set up, so this is how they hear about it).
+  const lastPending = useRef(null);
+  const baseTitle = useRef(document.title);
   const loadBadges = useCallback(() => {
     if (!isAdmin) return;
-    getLeaveStats().then((r) => setPendingLeave(Number(r.data?.pending || 0))).catch(() => {});
-  }, [isAdmin]);
+    getLeaveStats().then((r) => {
+      const pending = Number(r.data?.pending || 0);
+      const prev = lastPending.current;
+      lastPending.current = pending;
+      setPendingLeave(pending);
+      if (prev !== null && pending > prev) {
+        const added = pending - prev;
+        toast.info(`${added} new leave request${added === 1 ? '' : 's'} waiting for review. Click to open.`, {
+          toastId: 'new-leave-request',
+          autoClose: 10000,
+          onClick: () => navigate('/leave'),
+        });
+      }
+    }).catch(() => {});
+  }, [isAdmin, navigate]);
   useEffect(() => { loadBadges(); }, [loadBadges, location.pathname]);
   useEffect(() => {
-    const id = setInterval(loadBadges, 120000);
-    return () => clearInterval(id);
+    const id = setInterval(loadBadges, 60000);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadBadges(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVisible); };
   }, [loadBadges]);
+  // Waiting count in the browser tab, visible from other tabs
+  useEffect(() => {
+    const title = baseTitle.current;
+    document.title = pendingLeave > 0 ? `(${pendingLeave}) ${title}` : title;
+    return () => { document.title = title; };
+  }, [pendingLeave]);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {

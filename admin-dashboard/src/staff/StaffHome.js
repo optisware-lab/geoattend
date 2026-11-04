@@ -3,8 +3,9 @@ import { IoLocation, IoQrCode, IoCalendar, IoPerson, IoImageOutline } from 'reac
 import {
   session, getTodayStatus, getWeeklyStats, getMyAttendance, getProfile, getRules,
   checkIn, checkOut, checkInFromImage, webDeviceId, errorMessage,
+  requestLeave, getMyLeaves, cancelLeave,
 } from './staffApi';
-import { formatDate, formatDateLong, formatDuration, relativeDay } from '../utils/format';
+import { formatDate, formatDateLong, formatDateRange, formatDuration, relativeDay, toInputDate, daysInclusive } from '../utils/format';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 
 // Same palette as the mobile app (mobile-app/src/services/theme.js)
@@ -462,6 +463,124 @@ function HistoryTab({ active }) {
 
 // ---------- Profile tab ----------
 
+const LEAVE_TYPES = ['personal', 'sick', 'vacation', 'maternity', 'paternity', 'bereavement'];
+const LEAVE_STATUS_COLOR = { pending: C.orange, approved: C.green, rejected: C.red, cancelled: C.textMuted };
+const capitalize = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
+const fieldStyle = {
+  width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10, border: `1px solid ${C.border}`,
+  fontSize: 15, fontFamily: FONT, color: C.text, background: '#fff',
+};
+
+/** Request leave and see past requests (same as the mobile app's Request Leave screen). */
+function LeaveCard({ active }) {
+  const today = toInputDate(new Date());
+  const [leaveType, setLeaveType] = useState('sick');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [reason, setReason] = useState('');
+  const [leaves, setLeaves] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  const load = useCallback(() => {
+    getMyLeaves().then(({ data }) => setLeaves(Array.isArray(data) ? data : [])).catch(() => {});
+  }, []);
+  useEffect(() => { if (active) load(); }, [active, load]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setMessage(null);
+    if (!startDate || !endDate) { setMessage({ type: 'error', text: 'Please pick a start and end date.' }); return; }
+    if (startDate > endDate) { setMessage({ type: 'error', text: 'The start date must be before the end date.' }); return; }
+    setBusy(true);
+    try {
+      await requestLeave({ leaveType, startDate, endDate, reason: reason.trim() || undefined });
+      setMessage({ type: 'success', text: 'Leave request sent. Your admin has been notified.' });
+      setStartDate(''); setEndDate(''); setReason('');
+      load();
+    } catch (err) {
+      setMessage({ type: 'error', text: errorMessage(err, 'Could not send your leave request. Please try again.') });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = async (id) => {
+    if (!window.confirm('Cancel this leave request?')) return;
+    try {
+      await cancelLeave(id);
+      load();
+    } catch (err) {
+      setMessage({ type: 'error', text: errorMessage(err, 'Could not cancel the request.') });
+    }
+  };
+
+  const days = startDate && endDate && startDate <= endDate ? daysInclusive(startDate, endDate) : 0;
+
+  return (
+    <div style={st.card(C.green)}>
+      <div style={st.cardLabel}>REQUEST LEAVE</div>
+      {message && <div style={st.banner(message.type)}>{message.text}</div>}
+      <form onSubmit={submit}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '6px 0 14px' }}>
+          {LEAVE_TYPES.map((t) => (
+            <button
+              key={t} type="button" onClick={() => setLeaveType(t)} aria-pressed={leaveType === t}
+              style={{
+                padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${leaveType === t ? C.primary : C.border}`,
+                background: leaveType === t ? C.primary : '#fff', color: leaveType === t ? '#fff' : C.text,
+              }}
+            >
+              {capitalize(t)}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+          <label style={{ flex: 1, fontSize: 13, color: C.textSecondary }}>
+            Start date
+            <input type="date" style={{ ...fieldStyle, marginTop: 4 }} min={today} value={startDate}
+              onChange={(e) => { setStartDate(e.target.value); if (endDate && e.target.value > endDate) setEndDate(e.target.value); }} />
+          </label>
+          <label style={{ flex: 1, fontSize: 13, color: C.textSecondary }}>
+            End date
+            <input type="date" style={{ ...fieldStyle, marginTop: 4 }} min={startDate || today} value={endDate}
+              onChange={(e) => setEndDate(e.target.value)} />
+          </label>
+        </div>
+        {days > 0 && <div style={{ ...st.cardDetail, marginBottom: 10 }}>{days} day{days === 1 ? '' : 's'}</div>}
+        <textarea
+          style={{ ...fieldStyle, minHeight: 80, resize: 'vertical' }} maxLength={1000}
+          placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)}
+        />
+        <button type="submit" style={{ ...st.actionBtn(C.primary, busy), padding: '13px 12px', marginTop: 12, fontSize: 15, fontWeight: 700 }} disabled={busy}>
+          {busy ? 'Sending...' : 'Submit Request'}
+        </button>
+      </form>
+
+      <div style={{ ...st.cardLabel, marginTop: 20 }}>MY REQUESTS</div>
+      {leaves.length === 0 ? (
+        <div style={st.cardDetail}>No leave requests yet</div>
+      ) : leaves.map((l) => (
+        <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid #f5f5f5' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{capitalize(l.leave_type)} · {formatDateRange(l.start_date, l.end_date)}</div>
+            {l.review_note && <div style={st.cardDetail}>Note: {l.review_note}</div>}
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, color: '#fff', background: LEAVE_STATUS_COLOR[l.status] || C.textMuted }}>
+              {(l.status || '').toUpperCase()}
+            </span>
+            {l.status === 'pending' && (
+              <div><button type="button" style={st.textLink} onClick={() => cancel(l.id)}>Cancel</button></div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProfileTab({ active, onSignOut }) {
   const { user, institution } = session.get();
   const [profile, setProfile] = useState(null);
@@ -505,6 +624,8 @@ function ProfileTab({ active, onSignOut }) {
           </div>
         ))}
       </div>
+
+      <LeaveCard active={active} />
 
       {isIos && !isStandalone && (
         <div style={{ ...st.card(C.blue), fontSize: 14, lineHeight: 1.5 }}>

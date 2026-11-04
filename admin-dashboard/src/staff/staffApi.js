@@ -123,6 +123,9 @@ export const getRules = () => api.get('/institutions/rules');
 export const checkIn = (data) => api.post('/attendance/check-in', data);
 export const checkOut = (data) => api.post('/attendance/check-out', data);
 export const checkInFromImage = (formData) => api.post('/attendance/check-in-from-image', formData);
+export const requestLeave = (data) => api.post('/leave', data);
+export const getMyLeaves = () => api.get('/leave/my');
+export const cancelLeave = (id) => api.put(`/leave/${encodeURIComponent(id)}/cancel`);
 
 /** A stable per-browser id, so admins can tell devices apart in device logs. */
 export function webDeviceId() {

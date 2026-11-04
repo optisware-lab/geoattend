@@ -1,59 +1,78 @@
 const pool = require('../config/database');
 const { sendExpoPushNotifications } = require('../services/pushNotificationService');
+const { sendEmail } = require('../services/emailService');
 const { formatDateRange } = require('../utils/dateFormat');
-let prisma;
-try {
-  prisma = require('../prismaClient');
-} catch (e) {
-  // Prisma not available; fallback to raw SQL pool
-  prisma = null;
+
+// Every query runs on req.tenantDb: the request's own connection, which
+// Postgres row-level security limits to the signed-in user's institution.
+
+const LEAVE_TYPES = ['personal', 'sick', 'vacation', 'maternity', 'paternity', 'bereavement', 'other'];
+const LIST_STATUSES = ['pending', 'approved', 'rejected', 'cancelled'];
+const MAX_REASON = 1000;
+const MAX_NOTE = 500;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
+/** "2026-11-04" -> same string if it is a real calendar date, else null. */
+function calendarDate(value) {
+  if (typeof value !== 'string') return null;
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.toISOString().slice(0, 10) === value ? value : null;
 }
+
+/** Earliest start date allowed: yesterday on the server's UTC clock, so a
+ *  phone a few hours ahead of UTC can still pick its own "today". */
+const earliestStartIso = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+const LEAVE_COLUMNS = `lr.id, lr.staff_uuid, lr.institution_id, lr.leave_type, lr.start_date, lr.end_date,
+  lr.reason, lr.status, lr.reviewed_by, lr.reviewed_at, lr.review_note, lr.created_at, lr.updated_at`;
 
 /**
- * Prisma connections don't carry the request's RLS context, so every Prisma
- * block runs inside an interactive transaction where the tenant setting is
- * applied transaction-locally (cleaned up automatically on commit/rollback).
- * The connection also drops into the restricted RLS app role first: the
- * connecting owner (DATABASE_URL) may carry rolbypassrls=true on hosted
- * Postgres, which makes the policies inert for it — SET LOCAL ROLE removes
- * that shortcut for the duration of the transaction.
+ * Tells the institution's admins about a new request: a phone push to admins
+ * using the app, and an email to every admin with an address. Runs after the
+ * response is sent and never fails the request.
  */
-async function beginPrismaTenantTx(req, tx) {
-  await tx.$executeRawUnsafe('SET LOCAL ROLE geoattend_app');
-  if (req.user.role === 'super_admin') {
-    await tx.$executeRawUnsafe("SELECT set_config('app.bypass_rls', 'on', true)");
-  } else {
-    await tx.$executeRawUnsafe("SELECT set_config('app.institution_id', $1, true)", req.user.institution_id);
-  }
-}
-
-function withPrismaTenant(req, fn) {
-  if (!prisma) return Promise.reject(new Error('Prisma not available'));
-  return prisma.$transaction(async (tx) => {
-    await beginPrismaTenantTx(req, tx);
-    return fn(tx);
-  });
-}
-
-/** Fire-and-forget admin push about a new leave request (system context). */
 function notifyAdminsOfRequest(institutionId, staffUser, leaveType, startDate, endDate, leaveId) {
   pool.withSystemContext(async (client) => {
     const admins = await client.query(
-      `SELECT push_token FROM staff WHERE institution_id = $1 AND role IN ('admin','super_admin') AND is_active = true AND push_token IS NOT NULL`,
+      `SELECT email, push_token FROM staff
+       WHERE institution_id = $1 AND role IN ('admin','super_admin') AND is_active = true`,
       [institutionId]
     );
-    const staffName = `${staffUser.first_name} ${staffUser.last_name}`.trim();
-    const messages = admins.rows.map((a) => ({
-      to: a.push_token,
-      title: 'New Leave Request',
-      body: `${staffName} has requested ${leaveType} leave from ${startDate} to ${endDate}.`,
-      data: { type: 'leave_request', leaveId },
-    }));
-    return sendExpoPushNotifications(messages).catch(() => {});
-  }).catch(() => {});
+    const staffName = `${staffUser.first_name || ''} ${staffUser.last_name || ''}`.trim() || staffUser.staff_id || 'A staff member';
+    const when = formatDateRange(startDate, endDate);
+    const body = `${staffName} has requested ${leaveType} leave for ${when}.`;
+
+    const pushes = admins.rows
+      .filter((a) => a.push_token)
+      .map((a) => ({
+        to: a.push_token,
+        title: 'New Leave Request',
+        body,
+        data: { type: 'leave_request', leaveId },
+      }));
+    if (pushes.length) await sendExpoPushNotifications(pushes).catch(() => {});
+
+    const emails = [...new Set(admins.rows.map((a) => a.email).filter(Boolean))];
+    const dashboardUrl = (process.env.ADMIN_DASHBOARD_URL || 'https://geoattend-mu.vercel.app').replace(/\/$/, '');
+    await Promise.all(emails.map((to) => sendEmail({
+      to,
+      subject: `New leave request from ${staffName}`,
+      html: `<p>${escapeHtml(body)}</p>
+        <p>Staff ID: ${escapeHtml(staffUser.staff_id || '')}</p>
+        <p><a href="${escapeHtml(`${dashboardUrl}/leave`)}">Review it in the GeoAttend dashboard</a></p>`,
+    }).catch(() => null)));
+  }).catch((err) => console.error('Leave request notify error:', err.message));
 }
 
-/** Fire-and-forget review notification to the requester (system context). */
+/** Tells the staff member their request was approved or rejected. */
 function notifyRequesterOfReview(id, status, reviewNote) {
   pool.withSystemContext(async (client) => {
     const rows = await client.query(
@@ -65,94 +84,59 @@ function notifyRequesterOfReview(id, status, reviewNote) {
     );
     if (!rows.rows.length || !rows.rows[0].push_token) return;
     const { push_token, first_name, leave_type, start_date, end_date } = rows.rows[0];
-    const statusLabel = status === 'approved' ? 'approved' : 'rejected';
-    return sendExpoPushNotifications([{
+    const label = status === 'approved' ? 'approved' : 'rejected';
+    await sendExpoPushNotifications([{
       to: push_token,
-      title: `Leave Request ${statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}`,
-      body: `Hi ${first_name}, your ${leave_type} leave (${formatDateRange(start_date, end_date)}) has been ${statusLabel}.${reviewNote ? ` Note: ${reviewNote}` : ''}`,
+      title: `Leave Request ${label.charAt(0).toUpperCase() + label.slice(1)}`,
+      body: `Hi ${first_name}, your ${leave_type} leave (${formatDateRange(start_date, end_date)}) has been ${label}.${reviewNote ? ` Note: ${reviewNote}` : ''}`,
       data: { type: 'leave_review', leaveId: id, status },
     }]).catch(() => {});
-  }).catch(() => {});
+  }).catch((err) => console.error('Leave review notify error:', err.message));
 }
 
 // Staff: request leave
 exports.requestLeave = async (req, res) => {
   const db = req.tenantDb;
   try {
-    const { leaveType, startDate, endDate, reason } = req.body;
-    const staffUuid = req.user.id;
-    const institutionId = req.user.institution_id;
+    const { leaveType, reason } = req.body || {};
+    const startDate = calendarDate(req.body?.startDate);
+    const endDate = calendarDate(req.body?.endDate);
     const leave = leaveType || 'personal';
 
     if (!startDate || !endDate) {
       return res.status(400).json({ error: 'Start and end dates are required' });
     }
-
-    if (new Date(startDate) > new Date(endDate)) {
+    if (!LEAVE_TYPES.includes(leave)) {
+      return res.status(400).json({ error: 'Please choose a valid leave type' });
+    }
+    if (startDate > endDate) {
       return res.status(400).json({ error: 'Start date must be before end date' });
     }
-
-    if (new Date(startDate) < new Date().setHours(0, 0, 0, 0)) {
+    if (startDate < earliestStartIso()) {
       return res.status(400).json({ error: 'Cannot request leave for past dates' });
     }
+    const reasonText = typeof reason === 'string' ? reason.trim().slice(0, MAX_REASON) : '';
 
-    // Check for overlapping leave requests and insert (use Prisma when available)
-    if (prisma) {
-      const created = await withPrismaTenant(req, async (tx) => {
-        const overlap = await tx.leave_requests.findFirst({
-          where: {
-            staff_uuid: staffUuid,
-            status: { in: ['pending', 'approved'] },
-            AND: [
-              { start_date: { lte: new Date(endDate) } },
-              { end_date: { gte: new Date(startDate) } }
-            ]
-          }
-        });
-        if (overlap) return null;
-
-        return tx.leave_requests.create({
-          data: {
-            staff_uuid: staffUuid,
-            institution_id: institutionId,
-            leave_type: leave,
-            start_date: new Date(startDate),
-            end_date: new Date(endDate),
-            reason: reason || null,
-          }
-        });
-      });
-
-      if (!created) {
-        return res.status(400).json({ error: 'You already have a leave request for these dates' });
-      }
-
-      notifyAdminsOfRequest(institutionId, req.user, leave, startDate, endDate, created.id);
-      return res.status(201).json(created);
-    }
-
-    // fallback: raw SQL
     const overlap = await db.query(
       `SELECT id FROM leave_requests
        WHERE staff_uuid = $1 AND status IN ('pending', 'approved')
-         AND start_date <= $3 AND end_date >= $2`,
-      [staffUuid, startDate, endDate]
+         AND start_date <= $3::date AND end_date >= $2::date
+       LIMIT 1`,
+      [req.user.id, startDate, endDate]
     );
-
     if (overlap.rows.length > 0) {
       return res.status(400).json({ error: 'You already have a leave request for these dates' });
     }
 
     const result = await db.query(
       `INSERT INTO leave_requests (staff_uuid, institution_id, leave_type, start_date, end_date, reason)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2, $3, $4::date, $5::date, $6)
        RETURNING *`,
-      [staffUuid, institutionId, leave, startDate, endDate, reason || null]
+      [req.user.id, req.user.institution_id, leave, startDate, endDate, reasonText || null]
     );
 
-    notifyAdminsOfRequest(institutionId, req.user, leave, startDate, endDate, result.rows[0].id);
-
     res.status(201).json(result.rows[0]);
+    notifyAdminsOfRequest(req.user.institution_id, req.user, leave, startDate, endDate, result.rows[0].id);
   } catch (err) {
     console.error('Request leave error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -162,22 +146,14 @@ exports.requestLeave = async (req, res) => {
 // Staff: get my leave requests
 exports.getMyLeaves = async (req, res) => {
   try {
-    if (prisma) {
-      const rows = await withPrismaTenant(req, (tx) =>
-        tx.leave_requests.findMany({
-          where: { staff_uuid: req.user.id },
-          orderBy: { created_at: 'desc' },
-        })
-      );
-      return res.json(rows);
-    }
-
     const result = await req.tenantDb.query(
-      `SELECT lr.*, s.first_name as reviewer_first_name, s.last_name as reviewer_last_name
+      `SELECT ${LEAVE_COLUMNS},
+              r.first_name AS reviewer_first_name, r.last_name AS reviewer_last_name
        FROM leave_requests lr
-       LEFT JOIN staff s ON lr.reviewed_by = s.id
+       LEFT JOIN staff r ON lr.reviewed_by = r.id
        WHERE lr.staff_uuid = $1
-       ORDER BY lr.created_at DESC`,
+       ORDER BY lr.created_at DESC
+       LIMIT 200`,
       [req.user.id]
     );
     res.json(result.rows);
@@ -190,32 +166,18 @@ exports.getMyLeaves = async (req, res) => {
 // Staff: cancel own pending leave
 exports.cancelLeave = async (req, res) => {
   try {
-    if (prisma) {
-      const result = await withPrismaTenant(req, async (tx) => {
-        const existing = await tx.leave_requests.findFirst({
-          where: { id: Number(req.params.id), staff_uuid: req.user.id, status: 'pending' }
-        });
-        if (!existing) return null;
-        return tx.leave_requests.update({
-          where: { id: existing.id },
-          data: { status: 'cancelled', updated_at: new Date() }
-        });
-      });
-      if (!result) return res.status(404).json({ error: 'Leave request not found or cannot be cancelled' });
-      return res.json(result);
+    if (!isUuid(req.params.id)) {
+      return res.status(404).json({ error: 'Leave request not found or cannot be cancelled' });
     }
-
     const result = await req.tenantDb.query(
       `UPDATE leave_requests SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1 AND staff_uuid = $2 AND status = 'pending'
        RETURNING *`,
       [req.params.id, req.user.id]
     );
-
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Leave request not found or cannot be cancelled' });
     }
-
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Cancel leave error:', err);
@@ -223,67 +185,42 @@ exports.cancelLeave = async (req, res) => {
   }
 };
 
-// Admin: get all leave requests for institution
+// Admin: get all leave requests for the institution
 exports.getAllLeaves = async (req, res) => {
   try {
-    const { status, page = 1, limit = 50 } = req.query;
-    const offset = (page - 1) * limit;
     const institutionId = req.user.institution_id;
+    const status = LIST_STATUSES.includes(req.query.status) ? req.query.status : null;
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const offset = (page - 1) * limit;
 
-    if (prisma) {
-      const data = await withPrismaTenant(req, async (tx) => {
-        const where = { institution_id: institutionId };
-        if (status) where.status = status;
-
-        const [leaves, count] = await Promise.all([
-          tx.leave_requests.findMany({
-            where,
-            orderBy: { created_at: 'desc' },
-            take: parseInt(limit, 10),
-            skip: parseInt(offset, 10),
-          }),
-          tx.leave_requests.count({ where }),
-        ]);
-        return { leaves, count };
-      });
-      return res.json({
-        leaves: data.leaves,
-        total: data.count,
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-      });
-    }
-
-    let query = `
-      SELECT lr.*, s.staff_id, s.first_name, s.last_name, s.department,
-             r.first_name as reviewer_first_name, r.last_name as reviewer_last_name
-      FROM leave_requests lr
-      JOIN staff s ON lr.staff_uuid = s.id
-      LEFT JOIN staff r ON lr.reviewed_by = r.id
-      WHERE lr.institution_id = $1`;
     const params = [institutionId];
-    let paramIndex = 2;
-
+    let where = 'lr.institution_id = $1';
     if (status) {
-      query += ` AND lr.status = $${paramIndex}`;
       params.push(status);
-      paramIndex++;
+      where += ` AND lr.status = $${params.length}`;
     }
 
-    query += ` ORDER BY lr.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit, 10), parseInt(offset, 10));
-
-    const result = await req.tenantDb.query(query, params);
-
-    const countQuery = `SELECT COUNT(*) FROM leave_requests WHERE institution_id = $1${status ? ' AND status = $2' : ''}`;
-    const countParams = status ? [institutionId, status] : [institutionId];
-    const countResult = await req.tenantDb.query(countQuery, countParams);
+    const [result, countResult] = await Promise.all([
+      req.tenantDb.query(
+        `SELECT ${LEAVE_COLUMNS}, s.staff_id, s.first_name, s.last_name, s.department,
+                r.first_name AS reviewer_first_name, r.last_name AS reviewer_last_name
+         FROM leave_requests lr
+         JOIN staff s ON lr.staff_uuid = s.id
+         LEFT JOIN staff r ON lr.reviewed_by = r.id
+         WHERE ${where}
+         ORDER BY lr.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
+      ),
+      req.tenantDb.query(`SELECT COUNT(*)::int AS count FROM leave_requests lr WHERE ${where}`, params),
+    ]);
 
     res.json({
       leaves: result.rows,
-      total: parseInt(countResult.rows[0].count, 10),
-      page: parseInt(page, 10),
-      limit: parseInt(limit, 10),
+      total: countResult.rows[0].count,
+      page,
+      limit,
     });
   } catch (err) {
     console.error('Get all leaves error:', err);
@@ -295,81 +232,55 @@ exports.getAllLeaves = async (req, res) => {
 exports.reviewLeave = async (req, res) => {
   const db = req.tenantDb;
   try {
-    const { status, reviewNote } = req.body;
+    const { status, reviewNote } = req.body || {};
     const { id } = req.params;
-    const institutionId = req.user.institution_id;
 
     if (!['approved', 'rejected'].includes(status)) {
       return res.status(400).json({ error: 'Status must be approved or rejected' });
     }
-
-    if (prisma) {
-      const updated = await withPrismaTenant(req, async (tx) => {
-        const existing = await tx.leave_requests.findFirst({ where: { id: Number(id), institution_id: institutionId } });
-        if (!existing) return { notFound: true };
-        if (existing.status !== 'pending') return { notPending: true };
-
-        return tx.leave_requests.update({
-          where: { id: existing.id },
-          data: { status, reviewed_by: req.user.id, reviewed_at: new Date(), review_note: reviewNote || null, updated_at: new Date() }
-        });
-      });
-
-      if (updated && updated.notFound) {
-        return res.status(404).json({ error: 'Leave request not found' });
-      }
-      if (updated && updated.notPending) {
-        return res.status(400).json({ error: 'Can only review pending requests' });
-      }
-
-      notifyRequesterOfReview(id, status, reviewNote);
-      return res.json(updated);
-    }
-
-    const existing = await db.query(
-      'SELECT id, status FROM leave_requests WHERE id = $1 AND institution_id = $2',
-      [id, institutionId]
-    );
-
-    if (existing.rows.length === 0) {
+    if (!isUuid(id)) {
       return res.status(404).json({ error: 'Leave request not found' });
     }
+    const note = typeof reviewNote === 'string' ? reviewNote.trim().slice(0, MAX_NOTE) : '';
 
-    if (existing.rows[0].status !== 'pending') {
-      return res.status(400).json({ error: 'Can only review pending requests' });
-    }
-
+    // Only a pending request of this institution can be decided, checked in
+    // the same statement so two admins can't both decide it.
     const result = await db.query(
       `UPDATE leave_requests
        SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = $3, updated_at = NOW()
-       WHERE id = $4
+       WHERE id = $4 AND institution_id = $5 AND status = 'pending'
        RETURNING *`,
-      [status, req.user.id, reviewNote || null, id]
+      [status, req.user.id, note || null, id, req.user.institution_id]
     );
 
-    notifyRequesterOfReview(id, status, reviewNote);
+    if (result.rows.length === 0) {
+      const existing = await db.query(
+        'SELECT status FROM leave_requests WHERE id = $1 AND institution_id = $2',
+        [id, req.user.institution_id]
+      );
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Leave request not found' });
+      return res.status(400).json({ error: 'Can only review pending requests' });
+    }
 
     res.json(result.rows[0]);
+    notifyRequesterOfReview(id, status, note);
   } catch (err) {
     console.error('Review leave error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// Get leave stats for dashboard
+// Leave counts for the dashboard and the sidebar badge
 exports.getLeaveStats = async (req, res) => {
-  const db = req.tenantDb;
   try {
-    const institutionId = req.user.institution_id;
-    const result = await db.query(`
+    const result = await req.tenantDb.query(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'pending') as pending,
-        COUNT(*) FILTER (WHERE status = 'approved') as approved,
-        COUNT(*) FILTER (WHERE status = 'rejected') as rejected,
-        COUNT(*) FILTER (WHERE status = 'approved' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE) as on_leave_today
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending,
+        COUNT(*) FILTER (WHERE status = 'approved')::int AS approved,
+        COUNT(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+        COUNT(*) FILTER (WHERE status = 'approved' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE)::int AS on_leave_today
       FROM leave_requests WHERE institution_id = $1
-    `, [institutionId]);
-
+    `, [req.user.institution_id]);
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Leave stats error:', err);
