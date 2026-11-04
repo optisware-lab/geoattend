@@ -2,50 +2,106 @@ const cron = require('node-cron');
 const pool = require('../config/database');
 const { sendAbsenceAlert, sendDailySummary, sendWeeklySummary, sendAutoSuspendNotice } = require('./emailService');
 const { sendAbsentAlert } = require('./smsService');
+const { sendExpoPushNotifications } = require('./pushNotificationService');
 const { formatDate } = require('../utils/dateFormat');
 
-// ─── AUTO CHECK-OUT ─────────────────────────────────────────────────────────
-// Runs every day at the institution's work_end_time (default: 5:30 PM)
+// ─── AUTO SIGN-OUT ─────────────────────────────────────────────────────────
+// Closes sign-ins that staff forgot to close. Runs every 15 minutes, every
+// day, and once when the server starts, so a sleeping server catches up on
+// wake-up.
+//
+// - The sign-out time is the institution's work end time, never the time the
+//   job ran. If the staff member left the premises earlier and never came
+//   back, the time they left is used instead.
+// - Staff get a grace period after work end (AUTO_CHECKOUT_GRACE_MINUTES,
+//   default 60) to sign out themselves, so people working late are not cut off.
+// - Any open sign-in from an earlier day (weekends included) is closed too.
+// - No overtime is recorded: forgetting to sign out is not extra work.
+// Times use the database clock (GMT), which is Ghana time.
+const AUTO_CHECKOUT_NOTE = '[Auto sign-out]';
+let autoCheckOutRunning = false;
+
 async function autoCheckOut() {
-  console.log('[Scheduler] Running auto check-out...');
+  if (autoCheckOutRunning) return; // a startup run and a timer run can overlap
+  autoCheckOutRunning = true;
   try {
-    const rules = await pool.query(
-      "SELECT institution_id, work_end_time FROM attendance_rules WHERE member_type = 'staff'"
+    const parsedGrace = parseInt(process.env.AUTO_CHECKOUT_GRACE_MINUTES, 10);
+    const graceMinutes = Number.isFinite(parsedGrace) && parsedGrace >= 0 ? parsedGrace : 60;
+
+    const result = await pool.query(
+      `WITH open_records AS (
+         SELECT ar.id, ar.check_in_time, ar.premises_left_at, ar.premises_returned_at,
+                ar.date + COALESCE(r.work_end_time, rs.work_end_time, TIME '17:00') AS end_at
+         FROM attendance_records ar
+         JOIN staff s ON s.id = ar.staff_uuid
+         LEFT JOIN attendance_rules r
+           ON r.institution_id = ar.institution_id AND r.member_type = s.member_type
+         LEFT JOIN attendance_rules rs
+           ON rs.institution_id = ar.institution_id AND rs.member_type = 'staff'
+         WHERE ar.check_out_time IS NULL
+       ),
+       due AS (
+         SELECT id,
+                CASE
+                  WHEN premises_left_at IS NOT NULL AND premises_returned_at IS NULL
+                       AND premises_left_at > check_in_time AND premises_left_at < end_at
+                    THEN premises_left_at
+                  ELSE GREATEST(end_at, check_in_time)
+                END AS out_at,
+                (premises_left_at IS NOT NULL AND premises_returned_at IS NULL
+                 AND premises_left_at > check_in_time AND premises_left_at < end_at) AS left_early
+         FROM open_records
+         WHERE end_at::date < CURRENT_DATE  -- an earlier day
+            OR (check_in_time < end_at AND LOCALTIMESTAMP >= end_at + make_interval(mins => $1))
+       )
+       UPDATE attendance_records ar
+       SET check_out_time = due.out_at,
+           check_out_method = 'manual',
+           notes = concat_ws(' | ', NULLIF(ar.notes, ''),
+                     CASE WHEN due.left_early THEN $2::text || ' at the time they left the premises' ELSE $2::text END)
+       FROM due
+       WHERE ar.id = due.id AND ar.check_out_time IS NULL
+       RETURNING ar.staff_uuid, ar.institution_id, ar.date, due.left_early,
+                 to_char(ar.check_out_time, 'FMHH12:MI AM') AS check_out_label`,
+      [graceMinutes, AUTO_CHECKOUT_NOTE]
     );
-    const today = new Date().toISOString().split('T')[0];
 
-    for (const rule of rules.rows) {
-      const result = await pool.query(
-        `UPDATE attendance_records
-         SET check_out_time = NOW(), check_out_method = 'manual', notes = COALESCE(notes, '') || ' [Auto check-out]'
-         WHERE institution_id = $1 AND date = $2 AND check_out_time IS NULL
-         RETURNING staff_uuid`,
-        [rule.institution_id, today]
-      );
+    if (result.rowCount === 0) return;
+    console.log(`[Scheduler] Auto-signed out ${result.rowCount} open sign-in(s)`);
+    await notifyAutoCheckedOut(result.rows);
+  } finally {
+    autoCheckOutRunning = false;
+  }
+}
 
-      if (result.rowCount > 0) {
-        console.log(`[Scheduler] Auto-checked out ${result.rowCount} member(s) for institution ${rule.institution_id}`);
+// Tell each staff member on their phone, so a wrong time gets reported early.
+async function notifyAutoCheckedOut(rows) {
+  try {
+    const ids = [...new Set(rows.map((r) => r.staff_uuid))];
+    const tokens = await pool.query(
+      'SELECT id, push_token FROM staff WHERE id = ANY($1::uuid[]) AND push_token IS NOT NULL',
+      [ids]
+    );
+    const tokenById = new Map(tokens.rows.map((t) => [t.id, t.push_token]));
 
-        // Log overtime for those who were auto-checked out past work end time
-        for (const row of result.rows) {
-          await pool.query(
-            `INSERT INTO overtime_records (staff_uuid, institution_id, date, overtime_minutes, reason)
-             SELECT $1, $2, $3,
-               EXTRACT(EPOCH FROM (NOW() - (CURRENT_DATE + $4::TIME))) / 60,
-               'auto_checkout'
-             WHERE NOW() > (CURRENT_DATE + $4::TIME)`,
-            [row.staff_uuid, rule.institution_id, today, rule.work_end_time]
-          ).catch(() => {}); // ignore if no overtime
-        }
-      }
-    }
+    const messages = rows
+      .filter((r) => tokenById.has(r.staff_uuid))
+      .map((r) => ({
+        to: tokenById.get(r.staff_uuid),
+        title: 'You were signed out automatically',
+        body: `You didn't sign out on ${formatDate(r.date)}, so we signed you out at ${r.check_out_label}`
+          + `${r.left_early ? ', when you left the premises' : ''}. If that's wrong, please tell your admin.`,
+        data: { type: 'auto_checkout' },
+      }));
+
+    await sendExpoPushNotifications(messages);
   } catch (err) {
-    console.error('[Scheduler] Auto check-out error:', err.message);
+    console.error('[Scheduler] Auto sign-out notification error:', err.message);
   }
 }
 
 // ─── ABSENCE DETECTION & NOTIFICATIONS ──────────────────────────────────────
-// Runs daily after late threshold to detect who didn't check in
+// Runs daily after late threshold to detect who didn't sign in
 async function detectAbsences() {
   console.log('[Scheduler] Running absence detection...');
   try {
@@ -63,7 +119,7 @@ async function detectAbsences() {
       const workingDays = inst.working_days || [1, 2, 3, 4, 5];
       if (!workingDays.includes(dayOfWeek)) continue;
 
-      // Find active staff who haven't checked in today and don't have approved leave
+      // Find active staff who haven't signed in today and don't have approved leave
       const absent = await pool.query(`
         SELECT s.id, s.staff_id, s.first_name, s.last_name, s.department, s.email, s.phone
         FROM staff s
@@ -121,7 +177,8 @@ async function sendDailyReport() {
         pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [inst.id]),
         pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' WHERE ar.institution_id = $1 AND ar.date = $2", [inst.id, today]),
         pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true", [inst.id, today]),
-        pool.query("SELECT COUNT(*) FROM attendance_records WHERE institution_id = $1 AND date = $2 AND notes LIKE '%Auto check-out%'", [inst.id, today]),
+        // Staff who didn't sign out themselves (closed by the system or still open)
+        pool.query("SELECT COUNT(*) FROM attendance_records WHERE institution_id = $1 AND date = $2 AND (check_out_time IS NULL OR notes LIKE '%Auto check-out%' OR notes LIKE '%Auto sign-out%')", [inst.id, today]),
         pool.query('SELECT COUNT(*) FROM overtime_records WHERE institution_id = $1 AND date = $2', [inst.id, today]).catch(() => ({ rows: [{ count: 0 }] })),
       ]);
 
@@ -293,8 +350,12 @@ function guarded(name, fn) {
 function startScheduler() {
   console.log('[Scheduler] Starting scheduled jobs...');
 
-  // Auto check-out: every day at 5:30 PM (17:30)
-  cron.schedule('30 17 * * 1-5', guarded('Auto check-out', autoCheckOut), { timezone: 'Africa/Accra' });
+  // Auto sign-out: every 15 minutes, every day. Each institution is handled
+  // after its own work end time. Also run now to close anything missed while
+  // the server was asleep.
+  const runAutoCheckOut = guarded('Auto sign-out', autoCheckOut);
+  cron.schedule('*/15 * * * *', runAutoCheckOut, { timezone: 'Africa/Accra' });
+  runAutoCheckOut();
 
   // Absence detection: every working day at 10:00 AM (after late threshold)
   cron.schedule('0 10 * * 1-5', guarded('Absence detection', detectAbsences), { timezone: 'Africa/Accra' });
@@ -312,7 +373,7 @@ function startScheduler() {
   cron.schedule('0 2 1 * *', guarded('QR rotation', rotateQRCodes), { timezone: 'Africa/Accra' });
 
   console.log('[Scheduler] Scheduled jobs:');
-  console.log('  - Auto check-out: Mon-Fri 5:30 PM');
+  console.log("  - Auto sign-out: every 15 min, after each institution's work end time");
   console.log('  - Absence detection: Mon-Fri 10:00 AM');
   console.log('  - Daily summary: Mon-Fri 6:00 PM');
   console.log('  - Weekly summary: Friday 6:30 PM');

@@ -57,7 +57,7 @@ async function sendAbsenceAlert({ adminEmails, absentMembers, date, institutionN
         <p style="margin:4px 0 0;opacity:0.8">${date}</p>
       </div>
       <div style="padding:20px;background:#fff;border:1px solid #e0e0e0">
-        <p><strong>${absentMembers.length}</strong> member(s) did not check in today:</p>
+        <p><strong>${absentMembers.length}</strong> member(s) did not sign in today:</p>
         <table style="width:100%;border-collapse:collapse;margin:16px 0">
           <thead><tr style="background:#f5f5f5">
             <th style="padding:8px;border:1px solid #ddd;text-align:left">ID</th>
@@ -105,7 +105,7 @@ async function sendDailySummary({ adminEmails, stats, date, institutionName }) {
         </div>
         <p style="color:#666;font-size:13px">
           Attendance Rate: <strong>${stats.total > 0 ? Math.round((stats.present / stats.total) * 100) : 0}%</strong>
-          ${stats.autoCheckedOut > 0 ? ` | Auto-checked out: <strong>${stats.autoCheckedOut}</strong>` : ''}
+          ${stats.autoCheckedOut > 0 ? ` | Didn't sign out: <strong>${stats.autoCheckedOut}</strong>` : ''}
           ${stats.overtime > 0 ? ` | Overtime: <strong>${stats.overtime}</strong>` : ''}
         </p>
       </div>

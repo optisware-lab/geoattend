@@ -207,7 +207,7 @@ exports.getAuditLogs = async (req, res) => {
 exports.getSchedulerStatus = async (req, res) => {
   res.json({
     jobs: [
-      { name: 'Auto Check-Out', schedule: 'Mon-Fri 5:30 PM', timezone: 'Africa/Accra' },
+      { name: 'Auto Sign-Out', schedule: 'Every 15 min, after each work end time', timezone: 'Africa/Accra' },
       { name: 'Absence Detection', schedule: 'Mon-Fri 10:00 AM', timezone: 'Africa/Accra' },
       { name: 'Daily Summary', schedule: 'Mon-Fri 6:00 PM', timezone: 'Africa/Accra' },
       { name: 'Weekly Summary', schedule: 'Friday 6:30 PM', timezone: 'Africa/Accra' },
