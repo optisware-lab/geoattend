@@ -348,6 +348,18 @@ async function rotateQRCodes() {
   }
 }
 
+// ─── SIGN-IN PHOTO CLEANUP ──────────────────────────────────────────────────
+// Sign-in photos are personal data: keep them only as long as needed to
+// review attendance (SELFIE_RETENTION_DAYS, default 90), then delete them.
+async function deleteOldSelfies() {
+  const { SELFIE_RETENTION_DAYS } = require('../utils/selfie');
+  const result = await pool.query(
+    "DELETE FROM attendance_selfies WHERE created_at < NOW() - ($1 || ' days')::INTERVAL",
+    [String(SELFIE_RETENTION_DAYS)]
+  );
+  if (result.rowCount > 0) console.log(`[Scheduler] Deleted ${result.rowCount} sign-in photo(s) older than ${SELFIE_RETENTION_DAYS} days`);
+}
+
 // ─── START ALL SCHEDULED JOBS ───────────────────────────────────────────────
 // Cron jobs run without a user, so each one executes on a connection with the
 // RLS system bypass. The wrapper also keeps the console-error contract.
@@ -386,6 +398,9 @@ function startScheduler() {
   // QR code rotation: first day of every month at 2:00 AM
   cron.schedule('0 2 1 * *', guarded('QR rotation', rotateQRCodes), { timezone: 'Africa/Accra' });
 
+  // Sign-in photo cleanup: every day at 3:00 AM
+  cron.schedule('0 3 * * *', guarded('Sign-in photo cleanup', deleteOldSelfies), { timezone: 'Africa/Accra' });
+
   console.log('[Scheduler] Scheduled jobs:');
   console.log("  - Auto sign-out: every 15 min, after each institution's work end time");
   console.log('  - Absence detection: Mon-Fri 10:00 AM');
@@ -393,6 +408,7 @@ function startScheduler() {
   console.log('  - Weekly summary: Friday 6:30 PM');
   console.log('  - Auto-suspend inactive: Sunday midnight');
   console.log('  - QR code rotation: 1st of month 2:00 AM');
+  console.log('  - Sign-in photo cleanup: daily 3:00 AM');
 }
 
 module.exports = {

@@ -1,14 +1,15 @@
 const router = require('express').Router();
 const multer = require('multer');
 const attendanceController = require('../controllers/attendanceController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 const { requireActiveSubscription } = require('../middleware/subscription');
 
 router.use(authenticate, requireActiveSubscription);
 
 const qrImageUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  // fieldSize: the sign-in photo arrives as a base64 text field
+  limits: { fileSize: 8 * 1024 * 1024, fieldSize: 6 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (/^image\/(jpe?g|png|webp)$/i.test(file.mimetype)) cb(null, true);
     else cb(new Error('Only JPG, PNG or WebP images are accepted'));
@@ -21,6 +22,7 @@ router.post('/check-out', attendanceController.checkOut);
 router.get('/my-attendance', attendanceController.getMyAttendance);
 router.get('/today', attendanceController.getTodayStatus);
 router.get('/weekly-stats', attendanceController.getWeeklyStats);
+router.get('/records/:id/selfie', requireAdmin, attendanceController.getCheckInSelfie);
 
 // Map multer errors to JSON the app can display
 // eslint-disable-next-line no-unused-vars

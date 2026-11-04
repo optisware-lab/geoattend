@@ -1,5 +1,6 @@
 const { isWithinGeofence } = require('../utils/geofence');
 const { decodeQrFromBuffer } = require('../utils/qrDecoder');
+const { normalizeSelfie, normalizeBiometric, SELFIE_RETENTION_DAYS } = require('../utils/selfie');
 
 async function logFraudEvent(db, { institutionId, staffUuid, eventType, details, ipAddress }) {
   try {
@@ -68,7 +69,9 @@ function computeEarningsEstimate(record, staffRate, workEndTime, overtimeMultipl
 
 async function loadEarningsContext(db, institutionId, staffUuid) {
   const institution = await db.query(
-    'SELECT latitude, longitude, geofence_radius, payment_mode, currency, qr_rotation_token FROM institutions WHERE id = $1',
+    `SELECT latitude, longitude, geofence_radius, payment_mode, currency, qr_rotation_token,
+            require_checkin_selfie, require_checkin_biometric
+     FROM institutions WHERE id = $1`,
     [institutionId]
   );
   const staff = await db.query(
@@ -86,6 +89,16 @@ async function loadEarningsContext(db, institutionId, staffUuid) {
   };
 }
 
+/** What a sign-in must include for this institution (both on unless the admin turns them off). */
+async function getCheckInRequirements(db, institutionId) {
+  const result = await db.query(
+    'SELECT require_checkin_selfie, require_checkin_biometric FROM institutions WHERE id = $1',
+    [institutionId]
+  );
+  const row = result.rows[0] || {};
+  return { selfie: row.require_checkin_selfie !== false, biometric: row.require_checkin_biometric !== false };
+}
+
 exports.checkIn = async (req, res) => {
   await runCheckIn(req, res, req.body || {});
 };
@@ -96,7 +109,9 @@ exports.checkIn = async (req, res) => {
 async function runCheckIn(req, res, body) {
   const db = req.tenantDb;
   try {
-    const { latitude, longitude, method, deviceId, qrCode, qrToken } = body;
+    const { latitude, longitude, method, deviceId, qrCode, qrToken, selfie, biometric } = body;
+    // Apps that can take the sign-in photo say so; older versions can't yet
+    const selfieCapable = body.selfieCapable === true || body.selfieCapable === 'true';
     const staffUuid = req.user.id;
     const institutionId = req.user.institution_id;
 
@@ -222,6 +237,29 @@ async function runCheckIn(req, res, body) {
       return res.status(400).json({ error: 'Institution geofence not configured' });
     }
 
+    // ── Sign-in photo: proves who is holding the phone ───────────────────────
+    const selfieRequired = inst.require_checkin_selfie !== false;
+    let selfieJpeg = null;
+    try {
+      selfieJpeg = await normalizeSelfie(selfie);
+    } catch (photoErr) {
+      return res.status(photoErr.status || 400).json({ error: photoErr.message });
+    }
+    if (selfieRequired && !selfieJpeg) {
+      if (selfieCapable) {
+        return res.status(400).json({ error: 'Take a sign-in photo of yourself to continue.' });
+      }
+      // Older app without the camera step: accept, but flag it for the admin
+      await logFraudEvent(db, {
+        institutionId,
+        staffUuid,
+        eventType: 'checkin_without_selfie',
+        details: { method, reason: 'app_outdated' },
+        ipAddress: req.ip,
+      });
+    }
+    const selfieStatus = selfieJpeg ? 'taken' : (selfieRequired ? 'missing' : 'not_required');
+
     // Check if late
     let isLate = false;
     if (rules) {
@@ -236,12 +274,27 @@ async function runCheckIn(req, res, body) {
     const record = await db.query(
       `INSERT INTO attendance_records
         (staff_uuid, institution_id, check_in_time, check_in_latitude, check_in_longitude,
-         check_in_method, device_id, is_late, is_within_geofence, date, notes)
-       VALUES ($1, $2, COALESCE($10::timestamptz, NOW()), $3, $4, $5, $6, $7, $8, $9, $11)
+         check_in_method, device_id, is_late, is_within_geofence, date, notes,
+         check_in_selfie, check_in_biometric)
+       VALUES ($1, $2, COALESCE($10::timestamptz, NOW()), $3, $4, $5, $6, $7, $8, $9, $11, $12, $13)
        RETURNING *`,
       [staffUuid, institutionId, latitude, longitude, method, deviceId || null, isLate, withinGeofence, today,
-       offline.at ? offline.at.toISOString() : null, offline.note]
+       offline.at ? offline.at.toISOString() : null, offline.note, selfieStatus, normalizeBiometric(biometric)]
     );
+
+    if (selfieJpeg) {
+      try {
+        await db.query(
+          `INSERT INTO attendance_selfies (institution_id, attendance_record_id, staff_uuid, image, mime_type, taken_at)
+           VALUES ($1, $2, $3, $4, 'image/jpeg', $5)`,
+          [institutionId, record.rows[0].id, staffUuid, selfieJpeg, eventTime.toISOString()]
+        );
+      } catch (photoErr) {
+        console.error('Sign-in photo save error:', photoErr.message);
+        await db.query("UPDATE attendance_records SET check_in_selfie = 'missing' WHERE id = $1", [record.rows[0].id]);
+        record.rows[0].check_in_selfie = 'missing';
+      }
+    }
 
     // Log device
     if (deviceId) {
@@ -314,6 +367,9 @@ exports.checkInFromImage = async (req, res) => {
       deviceId: req.body.deviceId,
       qrCode,
       qrToken,
+      selfie: req.body.selfie,
+      biometric: req.body.biometric,
+      selfieCapable: req.body.selfieCapable,
     });
   } catch (err) {
     console.error('QR image sign-in error:', err);
@@ -517,16 +573,37 @@ exports.getTodayStatus = async (req, res) => {
       [req.user.id, today]
     );
 
+    const requirements = await getCheckInRequirements(db, req.user.institution_id);
+
     if (result.rows.length === 0) {
-      return res.json({ status: 'not_checked_in', record: null });
+      return res.json({ status: 'not_checked_in', record: null, requirements });
     }
 
     const record = result.rows[0];
     const status = record.check_out_time ? 'checked_out' : 'checked_in';
 
-    res.json({ status, record });
+    res.json({ status, record, requirements });
   } catch (err) {
     console.error('Get today status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/** Admin: the sign-in photo of one attendance record (JPEG). */
+exports.getCheckInSelfie = async (req, res) => {
+  try {
+    const result = await req.tenantDb.query(
+      'SELECT image, mime_type FROM attendance_selfies WHERE attendance_record_id = $1 AND institution_id = $2',
+      [req.params.id, req.user.institution_id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: `No sign-in photo (photos are deleted after ${SELFIE_RETENTION_DAYS} days)` });
+    }
+    res.set('Content-Type', result.rows[0].mime_type || 'image/jpeg');
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.send(result.rows[0].image);
+  } catch (err) {
+    console.error('Get sign-in photo error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 };

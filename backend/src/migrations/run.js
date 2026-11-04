@@ -277,6 +277,29 @@ CREATE TABLE IF NOT EXISTS geofence_events (
 CREATE INDEX IF NOT EXISTS idx_geofence_staff_date ON geofence_events(staff_uuid, created_at);
 CREATE INDEX IF NOT EXISTS idx_geofence_institution_date ON geofence_events(institution_id, created_at);
 
+-- ========== SIGN-IN IDENTITY CHECKS (photo + fingerprint/Face ID) ==========
+
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS require_checkin_selfie BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS require_checkin_biometric BOOLEAN NOT NULL DEFAULT true;
+-- 'taken' | 'missing' | 'not_required'; NULL for sign-ins before this feature
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_in_selfie VARCHAR(12);
+-- 'passed' | 'unavailable' | 'unsupported' | 'not_required'; NULL when the app sent nothing
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_in_biometric VARCHAR(12);
+
+CREATE TABLE IF NOT EXISTS attendance_selfies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  attendance_record_id UUID NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
+  staff_uuid UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+  image BYTEA NOT NULL,
+  mime_type VARCHAR(30) NOT NULL DEFAULT 'image/jpeg',
+  taken_at TIMESTAMPTZ,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_attendance_selfies_record ON attendance_selfies(attendance_record_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_selfies_created ON attendance_selfies(created_at);
+
 -- ========== RESTRICTED APP ROLE (makes RLS binding) ==========
 -- Hosted providers (Neon) give the project owner rolbypassrls=true, which
 -- silently disables every policy for DATABASE_URL connections. The app
@@ -393,6 +416,13 @@ ALTER TABLE institution_admin_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE institution_admin_credentials FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation_policy ON institution_admin_credentials;
 CREATE POLICY tenant_isolation_policy ON institution_admin_credentials
+  USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
+
+ALTER TABLE attendance_selfies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_selfies FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation_policy ON attendance_selfies;
+CREATE POLICY tenant_isolation_policy ON attendance_selfies
   USING ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ((NULLIF(current_setting('app.institution_id', true), '') IS NOT NULL AND institution_id = NULLIF(current_setting('app.institution_id', true), '')::uuid) OR current_setting('app.bypass_rls', true) = 'on');
 

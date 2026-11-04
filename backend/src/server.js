@@ -221,6 +221,24 @@ async function runAutoMigration(client) {
     // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€
     `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_left_at TIMESTAMP`,
     `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS premises_returned_at TIMESTAMP`,
+
+    // Sign-in identity checks: photo + fingerprint/Face ID at sign-in
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS require_checkin_selfie BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS require_checkin_biometric BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_in_selfie VARCHAR(12)`,
+    `ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS check_in_biometric VARCHAR(12)`,
+    `CREATE TABLE IF NOT EXISTS attendance_selfies (
+      id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+      attendance_record_id UUID NOT NULL REFERENCES attendance_records(id) ON DELETE CASCADE,
+      staff_uuid UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
+      image BYTEA NOT NULL,
+      mime_type VARCHAR(30) NOT NULL DEFAULT 'image/jpeg',
+      taken_at TIMESTAMPTZ,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS ux_attendance_selfies_record ON attendance_selfies(attendance_record_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_attendance_selfies_created ON attendance_selfies(created_at)`,
   ];
   for (const sql of newTables) {
     try { await client.query(sql); } catch (err) {
@@ -283,6 +301,7 @@ async function runAutoMigration(client) {
       'staff', 'attendance_records', 'attendance_rules',
       'overtime_records', 'geofence_events', 'fraud_events', 'subscriptions',
       'audit_logs', 'leave_requests', 'institution_admin_credentials',
+      'attendance_selfies',
     ],
     special: {
       // institutions IS the tenant row: its id is the institution id

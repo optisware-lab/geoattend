@@ -72,7 +72,8 @@ exports.getInstitution = async (req, res) => {
 
 exports.updateInstitution = async (req, res) => {
   try {
-    const { name, address, city, region, latitude, longitude, geofenceRadius, paymentMode, currency } = req.body;
+    const { name, address, city, region, latitude, longitude, geofenceRadius, paymentMode, currency,
+      requireCheckinSelfie, requireCheckinBiometric } = req.body;
     const institutionId = req.user.institution_id;
 
     // Only 'hourly' or 'monthly' are accepted payment modes
@@ -92,10 +93,14 @@ exports.updateInstitution = async (req, res) => {
         geofence_radius = COALESCE($7, geofence_radius),
         payment_mode = COALESCE($8, payment_mode),
         currency = COALESCE($9, currency),
+        require_checkin_selfie = COALESCE($11, require_checkin_selfie),
+        require_checkin_biometric = COALESCE($12, require_checkin_biometric),
         updated_at = NOW()
        WHERE id = $10
        RETURNING *`,
-      [name, address, city, region, latitude, longitude, geofenceRadius, paymentModeValue, currencyValue, institutionId]
+      [name, address, city, region, latitude, longitude, geofenceRadius, paymentModeValue, currencyValue, institutionId,
+       typeof requireCheckinSelfie === 'boolean' ? requireCheckinSelfie : null,
+       typeof requireCheckinBiometric === 'boolean' ? requireCheckinBiometric : null]
     );
 
     res.json(result.rows[0]);
