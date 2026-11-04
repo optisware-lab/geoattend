@@ -110,6 +110,8 @@ export default function Settings() {
         geofenceRadius: parseInt(inst.geofence_radius, 10),
         paymentMode: inst.payment_mode || 'monthly',
         currency: inst.currency || 'GHS',
+        requireCheckinSelfie: inst.require_checkin_selfie !== false,
+        requireCheckinBiometric: inst.require_checkin_biometric !== false,
       });
       toast.success('Institution settings saved');
     } catch { toast.error('Failed to save'); }
@@ -210,6 +212,31 @@ export default function Settings() {
               <label style={styles.label}>Currency</label>
               <input style={styles.input} placeholder="GHS" maxLength={10} value={inst.currency || ''} onChange={e => setInst(p => ({ ...p, currency: e.target.value.toUpperCase() }))} />
             </div>
+          </div>
+          <div style={{ ...styles.field, marginTop: '4px' }}>
+            <label style={styles.label}>Sign-in identity checks</label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                style={{ marginTop: '3px' }}
+                checked={inst.require_checkin_selfie !== false}
+                onChange={e => setInst(p => ({ ...p, require_checkin_selfie: e.target.checked }))}
+              />
+              <span>Take a photo at every sign-in
+                <span style={{ ...styles.hint, display: 'block', color: '#95a5a6' }}>Shown in Attendance Monitor so you can see who really signed in. Photos are deleted after 90 days.</span>
+              </span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', fontSize: '14px', cursor: 'pointer', marginTop: '8px' }}>
+              <input
+                type="checkbox"
+                style={{ marginTop: '3px' }}
+                checked={inst.require_checkin_biometric !== false}
+                onChange={e => setInst(p => ({ ...p, require_checkin_biometric: e.target.checked }))}
+              />
+              <span>Fingerprint / Face ID at every sign-in (Android app)
+                <span style={{ ...styles.hint, display: 'block', color: '#95a5a6' }}>Stops a colleague signing in on someone else's phone. Phones without a fingerprint set up can still sign in.</span>
+              </span>
+            </label>
           </div>
           <button
             style={styles.saveBtn}

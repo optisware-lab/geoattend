@@ -7,6 +7,7 @@ import {
 } from './staffApi';
 import { formatDate, formatDateLong, formatDateRange, formatDuration, relativeDay, toInputDate, daysInclusive } from '../utils/format';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
+import SelfieCapture from './SelfieCapture';
 
 // Same palette as the mobile app (mobile-app/src/services/theme.js)
 const C = {
@@ -662,6 +663,9 @@ export default function StaffHome({ onSignOut }) {
   const [locationError, setLocationError] = useState('');
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
+  // What a sign-in must include (from today's status); photo on unless the admin turned it off
+  const [requirements, setRequirements] = useState({ selfie: true, biometric: true });
+  const [selfieRequest, setSelfieRequest] = useState(null);
   const [rules, setRules] = useState(null);
   const [now, setNow] = useState(() => new Date());
 
@@ -689,6 +693,7 @@ export default function StaffHome({ onSignOut }) {
     setStatusError(false);
     try {
       const { data } = await getTodayStatus();
+      if (data.requirements) setRequirements(data.requirements);
       statusDay.current = new Date().toDateString();
       setStatus(data.status);
       setRecord(data.record || null);
@@ -764,13 +769,25 @@ export default function StaffHome({ onSignOut }) {
     if (err?.response) loadToday({ quiet: true });
   };
 
+  // The sign-in photo proves it is the account owner, not a colleague with
+  // their phone. Browsers can't use the phone's fingerprint, so the photo is
+  // the identity check here. Null when the person cancelled.
+  const presenceFields = async () => {
+    const fields = { biometric: 'unsupported', selfieCapable: true };
+    if (!requirements.selfie) return fields;
+    const selfie = await new Promise((resolve) => setSelfieRequest({ resolve }));
+    return selfie ? { ...fields, selfie } : null;
+  };
+
   const doGpsCheckIn = async () => {
     setBusy('checkin');
     setMessage(null);
     try {
       const loc = await refreshLocation();
       if (!loc) return;
-      const { data } = await checkIn({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId() });
+      const presence = await presenceFields();
+      if (!presence) { setMessage({ type: 'error', text: 'A sign-in photo is needed to sign in.' }); return; }
+      const { data } = await checkIn({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId(), ...presence });
       afterCheckIn(data, 'with GPS');
     } catch (err) {
       fail(err, 'Sign-in failed. Please try again.');
@@ -807,9 +824,11 @@ export default function StaffHome({ onSignOut }) {
       setMessage({ type: 'error', text: 'GPS location is required for QR sign-in. Turn on location and try again.' });
       return;
     }
+    const presence = await presenceFields();
+    if (!presence) { setMessage({ type: 'error', text: 'A sign-in photo is needed to sign in.' }); return; }
     const { data } = await checkIn({
       latitude: loc.latitude, longitude: loc.longitude, method: 'qr_code',
-      qrCode: parsed.qrCode, qrToken: parsed.qrToken, deviceId: webDeviceId(),
+      qrCode: parsed.qrCode, qrToken: parsed.qrToken, deviceId: webDeviceId(), ...presence,
     });
     afterCheckIn(data, 'with QR code');
   };
@@ -838,11 +857,16 @@ export default function StaffHome({ onSignOut }) {
       // The browser couldn't read it: let the server try before giving up
       const loc = await refreshLocation();
       if (!loc) return;
+      const presence = await presenceFields();
+      if (!presence) { setMessage({ type: 'error', text: 'A sign-in photo is needed to sign in.' }); return; }
       const form = new FormData();
       form.append('image', file);
       form.append('latitude', String(loc.latitude));
       form.append('longitude', String(loc.longitude));
       form.append('deviceId', webDeviceId());
+      form.append('biometric', presence.biometric);
+      form.append('selfieCapable', 'true');
+      if (presence.selfie) form.append('selfie', presence.selfie);
       const { data } = await checkInFromImage(form);
       afterCheckIn(data, 'with QR code');
     } catch (err) {
@@ -876,6 +900,10 @@ export default function StaffHome({ onSignOut }) {
       {tab === 'qr' && <QrTab active onQrText={onQrText} onPhoto={onPhoto} busy={busy} message={message} />}
       {tab === 'history' && <HistoryTab active />}
       {tab === 'profile' && <ProfileTab active onSignOut={signOut} />}
+
+      {selfieRequest && (
+        <SelfieCapture onDone={(photo) => { selfieRequest.resolve(photo); setSelfieRequest(null); }} />
+      )}
 
       <nav style={st.tabBar}>
         {TABS.map(({ key, label, Icon }) => (

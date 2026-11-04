@@ -90,6 +90,7 @@ export const getDashboardStats = (params) => api.get('/reports/dashboard', { par
 export const getTodaySummary = (params) => api.get('/reports/today-summary', { params });
 export const getAttendanceReport = (params) => api.get('/reports/attendance', { params });
 export const getRealTimeAttendance = (params) => api.get('/reports/realtime', { params });
+export const getCheckInSelfie = (recordId) => api.get(`/attendance/records/${recordId}/selfie`, { responseType: 'blob' });
 export const getWeeklySummary = (params) => api.get('/reports/weekly-summary', { params });
 export const getFraudReport = (params) => api.get('/reports/fraud', { params });
 export const getGeofenceEvents = (params) => api.get('/reports/geofence-events', { params });

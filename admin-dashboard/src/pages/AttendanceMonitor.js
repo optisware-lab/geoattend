@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { FiRefreshCw, FiSearch, FiPhone, FiClock, FiUserX, FiCheckCircle, FiAlertCircle, FiMapPin, FiCalendar } from 'react-icons/fi';
+import { FiRefreshCw, FiSearch, FiPhone, FiClock, FiUserX, FiCheckCircle, FiAlertCircle, FiMapPin, FiCalendar, FiCameraOff } from 'react-icons/fi';
 import { getRealTimeAttendance, getStaff, getAllLeaves } from '../services/api';
 import { PageHeader, Avatar, Badge, EmptyState, useAutoRefresh, useNow } from '../components/ui';
+import CheckInSelfie from '../components/CheckInSelfie';
 import { formatDateLong, formatTime, formatDuration, formatDateRange, timeAgo, toDate } from '../utils/format';
 
 const VIEWS = [
@@ -158,7 +159,7 @@ export default function AttendanceMonitor() {
             const onSiteMs = (out ? toDate(out) : now) - toDate(r.check_in_time);
             return (
               <div key={r.id} className="ga-card" style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 14 }}>
-                <Avatar first={r.first_name} last={r.last_name} photo={r.profile_photo_url} size={44} />
+                <CheckInSelfie record={r} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.first_name} {r.last_name}</div>
                   <div style={{ fontSize: 12, color: '#95a5a6', marginTop: 2 }}>
@@ -176,6 +177,16 @@ export default function AttendanceMonitor() {
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                   {out ? <Badge tone="gray" icon={FiCheckCircle}>Left</Badge> : <Badge tone="green">On site</Badge>}
                   {r.is_late && <Badge tone="orange" icon={FiAlertCircle}>Late</Badge>}
+                  {r.check_in_selfie === 'missing' && (
+                    <span title="Signed in without a photo (older app version). Ask them to update GeoAttend.">
+                      <Badge tone="red" icon={FiCameraOff}>No photo</Badge>
+                    </span>
+                  )}
+                  {r.check_in_biometric === 'unavailable' && (
+                    <span title="This phone has no fingerprint or Face ID set up, so only the photo confirms who signed in.">
+                      <Badge tone="gray">No fingerprint</Badge>
+                    </span>
+                  )}
                 </div>
               </div>
             );
