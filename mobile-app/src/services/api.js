@@ -39,7 +39,54 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-let isRefreshing = false;
+// ---- Staying signed in ----------------------------------------------------
+// Staff stay signed in until they tap Sign Out. When the server says the
+// token ran out, we swap it for a fresh one and repeat the request. Several
+// requests failing at once share one renewal, and a network problem during
+// renewal never signs anyone out; only the server refusing the account does.
+
+const SESSION_KEYS = ['token', 'user', 'institution'];
+let refreshPromise = null;
+const sessionEndedListeners = new Set();
+
+/** Called when the server ends the session (account removed or deactivated). */
+export function onSessionEnded(listener) {
+  sessionEndedListeners.add(listener);
+  return () => sessionEndedListeners.delete(listener);
+}
+
+async function endSession() {
+  await AsyncStorage.multiRemove(SESSION_KEYS);
+  sessionEndedListeners.forEach((fn) => { try { fn(); } catch {} });
+}
+
+/**
+ * Gets a fresh token from the server and saves it. Resolves to the new token,
+ * or null when the server refused (session ended). Rejects on network errors.
+ */
+export function renewSession() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const current = await AsyncStorage.getItem('token');
+      if (!current) return null;
+      try {
+        const { data } = await api.post('/auth/refresh-token', null, {
+          headers: { Authorization: `Bearer ${current}` },
+          _isRefresh: true,
+        });
+        await AsyncStorage.setItem('token', data.token);
+        return data.token;
+      } catch (err) {
+        if (err.response?.status === 401) {
+          await endSession();
+          return null;
+        }
+        throw err;
+      }
+    })().finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
 
 api.interceptors.response.use(
   (response) => response,
@@ -78,35 +125,34 @@ api.interceptors.response.use(
       return api(originalRequest);
     }
 
-    // If token expired and we haven't tried refreshing yet
+    const url = originalRequest?.url || '';
+    const isPublicAuth = PUBLIC_AUTH_PATHS.some((p) => url.includes(p));
+
+    // Token ran out: renew it once, then repeat the request
     if (
       error.response?.status === 401 &&
+      originalRequest &&
+      !originalRequest._isRefresh &&
+      !url.includes('/refresh-token') &&
       !originalRequest._retry &&
-      !originalRequest.url.includes('/refresh-token') &&
-      !PUBLIC_AUTH_PATHS.some((p) => originalRequest.url?.includes(p))
+      !isPublicAuth
     ) {
       originalRequest._retry = true;
-
-      if (!isRefreshing) {
-        isRefreshing = true;
-        try {
-          const { data } = await api.post('/auth/refresh-token');
-          await AsyncStorage.setItem('token', data.token);
-          isRefreshing = false;
-
-          // Retry the original request with new token
-          originalRequest.headers.Authorization = `Bearer ${data.token}`;
-          return api(originalRequest);
-        } catch (refreshError) {
-          isRefreshing = false;
-          await AsyncStorage.multiRemove(['token', 'user', 'institution']);
-          return Promise.reject(error);
-        }
+      let fresh;
+      try {
+        fresh = await renewSession();
+      } catch {
+        // Offline or server waking up: keep the saved sign-in and just fail this request
+        return Promise.reject(error);
       }
+      if (!fresh) return Promise.reject(error);
+      originalRequest.headers = { ...(originalRequest.headers || {}), Authorization: `Bearer ${fresh}` };
+      return api(originalRequest);
     }
 
-    if (error.response?.status === 401) {
-      await AsyncStorage.multiRemove(['token', 'user', 'institution']);
+    // Even a freshly renewed token was refused: the account is no longer allowed in
+    if (error.response?.status === 401 && originalRequest?._retry && !isPublicAuth) {
+      await endSession();
     }
     return Promise.reject(error);
   }

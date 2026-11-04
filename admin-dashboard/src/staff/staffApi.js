@@ -23,6 +23,58 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ---- Staying signed in ----
+// When the server says the token ran out, swap it for a fresh one and repeat
+// the request. Requests failing together share one renewal; a network problem
+// never signs anyone out, only the server refusing the account does.
+const PUBLIC_AUTH = ['/auth/login', '/auth/register', '/auth/google', '/auth/forgot-password', '/auth/forgot-staff-id'];
+let refreshPromise = null;
+
+/** Resolves to a fresh token, or null if the server ended the session. Rejects when offline. */
+export function renewSession() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      if (!localStorage.getItem(KEYS.token)) return null;
+      try {
+        const { data } = await api.post('/auth/refresh-token', null, { _isRefresh: true });
+        localStorage.setItem(KEYS.token, data.token);
+        return data.token;
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          [KEYS.token, KEYS.user, KEYS.institution].forEach((k) => localStorage.removeItem(k));
+          return null;
+        }
+        throw err;
+      }
+    })().finally(() => { refreshPromise = null; });
+  }
+  return refreshPromise;
+}
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const config = error.config;
+    const url = config?.url || '';
+    if (
+      error.response?.status !== 401 || !config || config._retry || config._isRefresh ||
+      url.includes('/refresh-token') || PUBLIC_AUTH.some((p) => url.includes(p))
+    ) {
+      return Promise.reject(error);
+    }
+    config._retry = true;
+    let fresh;
+    try {
+      fresh = await renewSession();
+    } catch {
+      return Promise.reject(error); // offline: keep the saved sign-in
+    }
+    if (!fresh) return Promise.reject(error);
+    config.headers = { ...(config.headers || {}), Authorization: `Bearer ${fresh}` };
+    return api(config);
+  }
+);
+
 function read(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  session, staffLogin, googleAuth, completeGoogleSignup, registerStaff, forgotPassword, forgotStaffId, errorMessage,
+  session, staffLogin, googleAuth, completeGoogleSignup, registerStaff, forgotPassword, forgotStaffId, errorMessage, renewSession,
 } from './staffApi';
 import GoogleButton from './GoogleButton';
 import StaffHome from './StaffHome';
@@ -526,6 +526,15 @@ export default function StaffApp() {
     setNotice(reason || '');
     setSignedIn(false);
   }, []);
+
+  // Renew the sign-in each time the page opens, so staff stay signed in until
+  // they tap Sign Out. Offline is fine: the saved sign-in is kept.
+  useEffect(() => {
+    if (!signedIn) return;
+    renewSession()
+      .then((token) => { if (token === null) handleSignOut('You have been signed out. Please sign in again.'); })
+      .catch(() => {});
+  }, [signedIn, handleSignOut]);
 
   if (!signedIn) {
     return (

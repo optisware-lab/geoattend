@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
+const { REFRESH_GRACE_MS } = require('../utils/authToken');
 
 /**
  * Verifies the JWT, loads the user from the database and binds the request to
@@ -14,7 +15,7 @@ const pool = require('../config/database');
  * finishes. Statements stay in autocommit mode, so a failed statement never
  * poisons the rest of the request.
  */
-const authenticate = async (req, res, next) => {
+const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, res, next) => {
   // 1) Token verification — no DB access needed
   let decoded;
   try {
@@ -24,7 +25,12 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.split(' ')[1];
-    decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // The signature is always checked. Only the refresh route accepts a token
+    // that ran out recently, so the apps can renew it instead of signing out.
+    decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: allowRecentlyExpired });
+    if (allowRecentlyExpired && decoded.exp && decoded.exp * 1000 + REFRESH_GRACE_MS < Date.now()) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
@@ -89,6 +95,10 @@ const authenticate = async (req, res, next) => {
   }
 };
 
+const authenticate = makeAuthenticate();
+// For POST /auth/refresh-token only
+const authenticateForRefresh = makeAuthenticate({ allowRecentlyExpired: true });
+
 const requireAdmin = (req, res, next) => {
   if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
     return res.status(403).json({ error: 'Admin access required' });
@@ -103,4 +113,4 @@ const requireSuperAdmin = (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, requireAdmin, requireSuperAdmin };
+module.exports = { authenticate, authenticateForRefresh, requireAdmin, requireSuperAdmin };

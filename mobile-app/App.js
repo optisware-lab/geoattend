@@ -9,6 +9,7 @@ import * as Updates from 'expo-updates';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ToastProvider } from './src/services/Toast';
+import { renewSession, onSessionEnded } from './src/services/api';
 
 import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
@@ -125,8 +126,14 @@ export default function App() {
 
   // Every sign-in (new or remembered) sets up push + reminders that follow the
   // institution's real work hours. May fail in Expo Go, never blocks the app.
+  // If the server ends the session (account deactivated), go back to sign-in
+  useEffect(() => onSessionEnded(() => setIsLoggedIn(false)), []);
+
   useEffect(() => {
     if (!isLoggedIn) return;
+    // Renew the sign-in every time the app opens, so it never runs out for
+    // staff who use the app. Offline is fine: the saved sign-in is kept.
+    renewSession().catch(() => {});
     registerForPushNotifications()
       .catch(() => {})
       .finally(() => { syncWorkReminders().catch(() => {}); });

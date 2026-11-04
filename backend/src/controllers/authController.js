@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
+const { signSessionToken } = require('../utils/authToken');
 const pool = require('../config/database');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
@@ -119,11 +120,7 @@ function logDevice(staffUuid, { deviceId, deviceModel, osVersion }, action, ipAd
 
 /** Token + user/institution/subscription payload returned by every sign-in route. */
 async function buildAuthPayload(staff, institutionCode) {
-  const token = jwt.sign(
-    { userId: staff.id, role: staff.role, institutionId: staff.institution_id },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-  );
+  const token = signSessionToken(staff);
 
   const subscription = await getSubscriptionPayloadSafe(staff.institution_id);
 
@@ -673,16 +670,9 @@ exports.createInitialAdmin = async (req, res) => {
 
 exports.refreshToken = async (req, res) => {
   try {
-    const staff = req.user;
-    const token = jwt.sign(
-      {
-        userId: staff.userId || staff.id,
-        role: staff.role,
-        institutionId: staff.institution_id || staff.institutionId,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
-    );
+    // req.user is the current database row, so a changed role or institution
+    // is picked up, and deactivated accounts never get here.
+    const token = signSessionToken(req.user);
     res.json({ token });
   } catch (err) {
     console.error('Refresh token error:', err);
