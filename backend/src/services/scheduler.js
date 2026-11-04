@@ -75,16 +75,30 @@ async function autoCheckOut() {
 }
 
 // Tell each staff member on their phone, so a wrong time gets reported early.
+// One push per person, about their latest day only, and none for sign-ins
+// older than a week: the first run after a deploy or a long server sleep can
+// close many old records, and nobody needs a pile of notifications about them.
+const NOTIFY_WITHIN_DAYS = 7;
+
 async function notifyAutoCheckedOut(rows) {
   try {
-    const ids = [...new Set(rows.map((r) => r.staff_uuid))];
+    const cutoff = Date.now() - NOTIFY_WITHIN_DAYS * 24 * 60 * 60 * 1000;
+    const latestByStaff = new Map();
+    for (const r of rows) {
+      const day = new Date(r.date).getTime();
+      if (!(day >= cutoff)) continue;
+      const prev = latestByStaff.get(r.staff_uuid);
+      if (!prev || day > new Date(prev.date).getTime()) latestByStaff.set(r.staff_uuid, r);
+    }
+    if (latestByStaff.size === 0) return;
+
     const tokens = await pool.query(
       'SELECT id, push_token FROM staff WHERE id = ANY($1::uuid[]) AND push_token IS NOT NULL',
-      [ids]
+      [[...latestByStaff.keys()]]
     );
     const tokenById = new Map(tokens.rows.map((t) => [t.id, t.push_token]));
 
-    const messages = rows
+    const messages = [...latestByStaff.values()]
       .filter((r) => tokenById.has(r.staff_uuid))
       .map((r) => ({
         to: tokenById.get(r.staff_uuid),
