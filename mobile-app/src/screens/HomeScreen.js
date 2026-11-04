@@ -18,6 +18,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from '../services/theme';
 import { useI18n } from '../services/i18n';
 import { useToast } from '../services/Toast';
+import { confirmPresence, saveCheckInRequirements } from '../services/presence';
 
 /** "17:00:00" -> a Date today at 5:00 PM */
 function clockToday(hhmmss, base) {
@@ -85,6 +86,7 @@ export default function HomeScreen() {
     try {
       const { data } = await getTodayStatus();
       saveTodayStatus(data.status, data.record);
+      saveCheckInRequirements(data.requirements);
       statusDay.current = new Date().toDateString();
       setTodayStatus((await getPendingStatus()) || data.status);
       setRecord(data.record || null);
@@ -225,11 +227,25 @@ export default function HomeScreen() {
     }
 
     setLoading(true);
+    // Fingerprint / Face ID, then the sign-in photo: proves it is the owner
+    let presence;
+    try {
+      presence = await confirmPresence();
+    } catch {
+      presence = { cancelled: true, message: 'Could not confirm it is you. Please try again.' };
+    }
+    if (presence.cancelled) {
+      toast.error(presence.message, 'Sign-In Stopped');
+      setLoading(false);
+      return;
+    }
+
     const checkInData = {
       latitude: location.latitude,
       longitude: location.longitude,
       method: 'gps',
       deviceId: Device.osBuildId || Device.modelId || Device.modelName || 'unknown',
+      ...presence.fields,
     };
 
     try {

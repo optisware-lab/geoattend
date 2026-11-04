@@ -10,6 +10,7 @@ import * as Device from 'expo-device';
 import { checkIn, checkInFromImage } from '../services/api';
 import { getCurrentLocation } from '../services/location';
 import { addToQueue, getQueueLength, isOnline } from '../services/offlineQueue';
+import { confirmPresence } from '../services/presence';
 
 const LOCATION_REQUIRED = 'GPS location is required for QR sign-in. Please enable location services and try again.';
 
@@ -25,6 +26,21 @@ async function getRequiredLocation() {
     return null;
   }
   return location;
+}
+
+/** Fingerprint / Face ID + sign-in photo; null (after telling the person) if it stopped. */
+async function getPresenceFields() {
+  let presence;
+  try {
+    presence = await confirmPresence();
+  } catch {
+    presence = { cancelled: true, message: 'Could not confirm it is you. Please try again.' };
+  }
+  if (presence.cancelled) {
+    Alert.alert('Sign-In Stopped', presence.message);
+    return null;
+  }
+  return presence.fields;
 }
 
 // Set by the screen: takes staff back to Home after a successful sign-in
@@ -82,6 +98,9 @@ async function checkInWithQrData(data) {
   const location = await getRequiredLocation();
   if (!location) return;
 
+  const presenceFields = await getPresenceFields();
+  if (!presenceFields) return;
+
   const payload = {
     latitude: location.latitude,
     longitude: location.longitude,
@@ -89,6 +108,7 @@ async function checkInWithQrData(data) {
     qrCode,
     qrToken: qrToken || undefined,
     deviceId: getDeviceId(),
+    ...presenceFields,
   };
 
   const connected = await isOnline();
@@ -127,6 +147,9 @@ async function checkInWithServerDecode(asset) {
   const location = await getRequiredLocation();
   if (!location) return;
 
+  const presenceFields = await getPresenceFields();
+  if (!presenceFields) return;
+
   const formData = new FormData();
   formData.append('image', {
     uri: asset.uri,
@@ -136,6 +159,9 @@ async function checkInWithServerDecode(asset) {
   formData.append('latitude', String(location.latitude));
   formData.append('longitude', String(location.longitude));
   formData.append('deviceId', getDeviceId());
+  formData.append('biometric', presenceFields.biometric);
+  formData.append('selfieCapable', 'true');
+  if (presenceFields.selfie) formData.append('selfie', presenceFields.selfie);
 
   const { data: result } = await checkInFromImage(formData);
   showCheckInResult(result);
@@ -232,11 +258,16 @@ export default function QRScanScreen({ navigation }) {
       </View>
 
       <View style={styles.cameraContainer}>
-        <CameraView
-          style={styles.camera}
-          barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-          onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-        />
+        {loading ? (
+          // Released while signing in, so the sign-in photo can use the front camera
+          <View style={[styles.camera, { backgroundColor: '#000' }]} />
+        ) : (
+          <CameraView
+            style={styles.camera}
+            barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+          />
+        )}
         <View style={styles.overlay}>
           <View style={styles.scanFrame} />
         </View>

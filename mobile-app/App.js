@@ -9,6 +9,7 @@ import * as Updates from 'expo-updates';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { ToastProvider } from './src/services/Toast';
+import SelfieCameraHost from './src/components/SelfieCameraHost';
 import { renewSession, onSessionEnded } from './src/services/api';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -195,6 +196,7 @@ export default function App() {
           {isLoggedIn && <Stack.Screen name="LeaveRequest" component={LeaveRequestScreen} />}
         </Stack.Navigator>
       </NavigationContainer>
+      {isLoggedIn && <SelfieCameraHost />}
       </ToastProvider>
     </SafeAreaProvider>
     </ThemeProvider>
