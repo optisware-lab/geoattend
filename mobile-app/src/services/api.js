@@ -1,6 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { TODAY_STATUS_KEY } from './todayStatus';
 
 // Resolve API base URL: .env override, then app.json extra, then the live backend.
 // For a local backend set EXPO_PUBLIC_API_BASE_URL=http://<your-LAN-IP>:5000/api in mobile-app/.env.
@@ -45,7 +46,8 @@ api.interceptors.request.use(async (config) => {
 // requests failing at once share one renewal, and a network problem during
 // renewal never signs anyone out; only the server refusing the account does.
 
-const SESSION_KEYS = ['token', 'user', 'institution'];
+// Everything removed from the phone on log out
+export const SESSION_KEYS = ['token', 'user', 'institution', TODAY_STATUS_KEY];
 let refreshPromise = null;
 const sessionEndedListeners = new Set();
 
@@ -141,9 +143,11 @@ api.interceptors.response.use(
       let fresh;
       try {
         fresh = await renewSession();
-      } catch {
-        // Offline or server waking up: keep the saved login and just fail this request
-        return Promise.reject(error);
+      } catch (renewError) {
+        // Offline or server waking up: keep the saved login and fail this
+        // request with the connection error (not "Token expired"), so screens
+        // treat it as a connection problem and can save sign-ins for later.
+        return Promise.reject(renewError);
       }
       if (!fresh) return Promise.reject(error);
       originalRequest.headers = { ...(originalRequest.headers || {}), Authorization: `Bearer ${fresh}` };

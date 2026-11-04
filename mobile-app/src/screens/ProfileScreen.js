@@ -7,7 +7,7 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Updates from 'expo-updates';
 import * as ImagePicker from 'expo-image-picker';
-import { getProfile, changePassword } from '../services/api';
+import { getProfile, changePassword, SESSION_KEYS } from '../services/api';
 import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
@@ -194,7 +194,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
         text: 'Switch',
         onPress: async () => {
           await saveToRecentAccounts();
-          await AsyncStorage.multiRemove(['token', 'user', 'institution']);
+          await AsyncStorage.multiRemove(SESSION_KEYS);
           if (onLogout) onLogout();
         },
       },
@@ -209,7 +209,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
         style: 'destructive',
         onPress: async () => {
           await saveToRecentAccounts();
-          await AsyncStorage.multiRemove(['token', 'user', 'institution']);
+          await AsyncStorage.multiRemove(SESSION_KEYS);
           if (onLogout) {
             onLogout();
           } else {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -137,6 +137,16 @@ export default function App() {
     registerForPushNotifications()
       .catch(() => {})
       .finally(() => { syncWorkReminders().catch(() => {}); });
+
+    // Phones usually resume the app from the background rather than starting
+    // it fresh, so renew on resume too (at most every 10 minutes).
+    let lastRenew = Date.now();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || Date.now() - lastRenew < 10 * 60 * 1000) return;
+      lastRenew = Date.now();
+      renewSession().catch(() => {});
+    });
+    return () => sub.remove();
   }, [isLoggedIn]);
 
   const handleLogout = () => {

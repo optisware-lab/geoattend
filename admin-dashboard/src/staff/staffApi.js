@@ -66,8 +66,10 @@ api.interceptors.response.use(
     let fresh;
     try {
       fresh = await renewSession();
-    } catch {
-      return Promise.reject(error); // offline: keep the saved login
+    } catch (renewError) {
+      // Offline or server waking up: keep the saved login and report the
+      // connection problem, not "Token expired" (which would log staff out)
+      return Promise.reject(renewError);
     }
     if (!fresh) return Promise.reject(error);
     config.headers = { ...(config.headers || {}), Authorization: `Bearer ${fresh}` };

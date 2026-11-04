@@ -114,7 +114,7 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
-function CheckInTab({ user, institution, status, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message }) {
+function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message }) {
   const [confirmOut, setConfirmOut] = useState(false);
   const radius = institution?.geofenceRadius || 200;
   const distance = location && institution?.latitude != null
@@ -159,7 +159,13 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
       {message && <div style={st.banner(message.type)}>{message.text}</div>}
 
       <div style={{ marginBottom: 16 }}>
-        {status === 'checked_in' ? (
+        {!status ? (
+          // Not known yet: never guess Sign In, tapping it when already signed in fails
+          <button type="button" style={st.actionBtn(C.textMuted, !statusError)} disabled={!statusError} onClick={onRetryStatus}>
+            <span style={st.actionText}>{statusError ? 'Couldn\'t load your status' : 'Checking your status...'}</span>
+            <span style={st.actionSub}>{statusError ? 'Tap to try again' : 'One moment'}</span>
+          </button>
+        ) : status === 'checked_in' ? (
           <button type="button" style={st.actionBtn(confirmOut ? '#922b21' : C.red, !!busy)} disabled={!!busy} onClick={handleCheckOut}>
             <span style={st.actionText}>{busy === 'checkout' ? 'Signing out...' : confirmOut ? 'Tap again to sign out' : 'Sign Out'}</span>
             <span style={st.actionSub}>
@@ -215,7 +221,7 @@ function CheckInTab({ user, institution, status, record, stats, rules, now, loca
         <div style={st.cardLabel}>TODAY</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={st.cardValue}>
-            {status === 'checked_in' ? 'Signed In' : status === 'checked_out' ? 'Signed Out' : status ? 'Not Signed In' : 'Loading...'}
+            {status === 'checked_in' ? 'Signed In' : status === 'checked_out' ? 'Signed Out' : status ? 'Not Signed In' : statusError ? 'Not loaded' : 'Loading...'}
           </span>
           {checkedInAt && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: record?.is_late ? '#fef5e7' : '#e8f6ee', color: record?.is_late ? '#b9770e' : '#1e8449' }}>
@@ -527,6 +533,8 @@ export default function StaffHome({ onSignOut }) {
   const { user, institution } = session.get();
   const [tab, setTab] = useState('home');
   const [status, setStatus] = useState(null);
+  const [statusError, setStatusError] = useState(false);
+  const statusDay = useRef(null);
   const [record, setRecord] = useState(null);
   const [stats, setStats] = useState(null);
   const [location, setLocation] = useState(null);
@@ -555,13 +563,18 @@ export default function StaffHome({ onSignOut }) {
     return false;
   }, [onSignOut]);
 
-  const loadToday = useCallback(async () => {
+  // quiet: don't replace a message already on screen (e.g. a failed sign-in)
+  const loadToday = useCallback(async ({ quiet = false } = {}) => {
+    setStatusError(false);
     try {
       const { data } = await getTodayStatus();
+      statusDay.current = new Date().toDateString();
       setStatus(data.status);
-      setRecord(data.record);
+      setRecord(data.record || null);
     } catch (err) {
-      if (!handleAuthError(err)) setMessage({ type: 'error', text: errorMessage(err, 'Could not load today\'s status.') });
+      if (handleAuthError(err)) return;
+      setStatusError(true);
+      if (!quiet) setMessage({ type: 'error', text: errorMessage(err, 'Could not load today\'s status.') });
     }
     getWeeklyStats().then(({ data }) => setStats(data.month)).catch(() => {});
   }, [handleAuthError]);
@@ -603,8 +616,13 @@ export default function StaffHome({ onSignOut }) {
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
+      // A new day: drop yesterday's button until today's status arrives
+      if (statusDay.current && statusDay.current !== new Date().toDateString()) {
+        setStatus(null);
+        setRecord(null);
+      }
       setNow(new Date());
-      loadToday();
+      loadToday({ quiet: true });
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -619,7 +637,10 @@ export default function StaffHome({ onSignOut }) {
   };
 
   const fail = (err, fallback) => {
-    if (!handleAuthError(err)) setMessage({ type: 'error', text: errorMessage(err, fallback) });
+    if (handleAuthError(err)) return;
+    setMessage({ type: 'error', text: errorMessage(err, fallback) });
+    // The server said no (e.g. already signed in on another device): show the right button
+    if (err?.response) loadToday({ quiet: true });
   };
 
   const doGpsCheckIn = async () => {
@@ -726,7 +747,7 @@ export default function StaffHome({ onSignOut }) {
     <div style={st.page}>
       {tab === 'home' && (
         <CheckInTab
-          user={user} institution={institution} status={status} record={record} stats={stats} rules={rules} now={now}
+          user={user} institution={institution} status={status} statusError={statusError} onRetryStatus={() => loadToday()} record={record} stats={stats} rules={rules} now={now}
           location={location} locationError={locationError} onRefreshLocation={refreshLocation}
           onCheckIn={doGpsCheckIn} onCheckOut={doCheckOut} busy={busy} message={message}
         />

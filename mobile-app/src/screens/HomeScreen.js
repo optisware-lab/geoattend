@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator,
-  RefreshControl, ScrollView, Platform,
+  RefreshControl, ScrollView, Platform, AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,6 +10,7 @@ import { getCurrentLocation, calculateDistance, watchLocation } from '../service
 import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent, getAttendanceRules } from '../services/api';
 import { formatDateLong, formatTime, formatDuration } from '../services/format';
 import { addToQueue, syncQueue, getQueueLength, getPendingStatus, isOnline } from '../services/offlineQueue';
+import { saveTodayStatus, readTodayStatus } from '../services/todayStatus';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { WebView } from 'react-native-webview';
@@ -34,7 +35,10 @@ export default function HomeScreen() {
   const toast = useToast();
   const [user, setUser] = useState(null);
   const [institution, setInstitution] = useState(null);
-  const [todayStatus, setTodayStatus] = useState('not_checked_in');
+  // null = not known yet. Never assume "not signed in": showing Sign In to
+  // someone already signed in makes the tap fail.
+  const [todayStatus, setTodayStatus] = useState(null);
+  const [statusError, setStatusError] = useState(false);
   const [record, setRecord] = useState(null);
   const [location, setLocation] = useState(null);
   const [distance, setDistance] = useState(null);
@@ -53,6 +57,69 @@ export default function HomeScreen() {
     return () => clearInterval(id);
   }, []);
 
+  // Which day the shown status belongs to, so an app left open overnight
+  // doesn't keep yesterday's button.
+  const statusDay = useRef(null);
+
+  const showStatus = useCallback((status, rec) => {
+    statusDay.current = new Date().toDateString();
+    setTodayStatus(status);
+    setRecord(rec || null);
+    setStatusError(false);
+    saveTodayStatus(status, rec);
+  }, []);
+
+  // Today's status decides the main button. Show what this phone already
+  // knows first (sign-ins waiting to sync, then the last status saved today),
+  // then let the server's answer replace it.
+  const refreshStatus = useCallback(async () => {
+    const pending = await getPendingStatus();
+    const saved = await readTodayStatus();
+    const known = pending || saved?.status;
+    if (known) {
+      statusDay.current = new Date().toDateString();
+      setTodayStatus((cur) => cur || known);
+      if (saved?.record) setRecord((cur) => cur || saved.record);
+    }
+
+    try {
+      const { data } = await getTodayStatus();
+      saveTodayStatus(data.status, data.record);
+      statusDay.current = new Date().toDateString();
+      setTodayStatus((await getPendingStatus()) || data.status);
+      setRecord(data.record || null);
+      setStatusError(false);
+    } catch {
+      if (known) return; // keep showing what we know
+      if (!(await isOnline())) {
+        // Offline with nothing saved: allow a sign-in, which is queued and
+        // checked by the server when it syncs.
+        setTodayStatus((cur) => cur || 'not_checked_in');
+        return;
+      }
+      setStatusError(true);
+    }
+  }, []);
+
+  const retryStatus = () => {
+    setStatusError(false);
+    refreshStatus();
+  };
+
+  // Opening the app again (from the background) refreshes today's status
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      if (statusDay.current && statusDay.current !== new Date().toDateString()) {
+        setTodayStatus(null);
+        setRecord(null);
+      }
+      setNow(new Date());
+      refreshStatus();
+    });
+    return () => sub.remove();
+  }, [refreshStatus]);
+
   // Distance follows every location update
   useEffect(() => {
     if (!location || !institution) return;
@@ -68,19 +135,12 @@ export default function HomeScreen() {
       let cancelled = false;
       setNow(new Date());
       // Coming back to this tab (e.g. after a QR sign-in) shows the latest status
-      getTodayStatus()
-        .then(async ({ data }) => {
-          if (cancelled) return;
-          const pending = await getPendingStatus();
-          setTodayStatus(pending || data.status);
-          setRecord(data.record);
-        })
-        .catch(() => {});
+      refreshStatus();
       watchLocation((loc) => { if (!cancelled) setLocation(loc); })
         .then((fn) => { if (cancelled) fn(); else stop = fn; })
         .catch(() => {});
       return () => { cancelled = true; stop(); };
-    }, [])
+    }, [refreshStatus])
   );
 
   const reportSync = useCallback((result) => {
@@ -118,15 +178,7 @@ export default function HomeScreen() {
       reportSync(await syncQueue());
     }
 
-    try {
-      const { data } = await getTodayStatus();
-      setTodayStatus(data.status);
-      setRecord(data.record);
-    } catch {}
-
-    // Anything still queued (offline) decides which button to show
-    const pending = await getPendingStatus();
-    if (pending) setTodayStatus(pending);
+    await refreshStatus();
 
     try {
       const { data } = await getWeeklyStats();
@@ -135,7 +187,7 @@ export default function HomeScreen() {
 
     const qLen = await getQueueLength();
     setPendingSync(qLen);
-  }, [reportSync]);
+  }, [reportSync, refreshStatus]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -192,8 +244,7 @@ export default function HomeScreen() {
       }
 
       const { data } = await checkIn(checkInData);
-      setTodayStatus('checked_in');
-      setRecord(data.record);
+      showStatus('checked_in', data.record);
 
       const lateMsg = data.isLate ? 'You have been marked as LATE.' : 'Signed in on time!';
       toast.success(lateMsg, 'Sign-In Successful');
@@ -210,6 +261,8 @@ export default function HomeScreen() {
         toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
       } else {
         toast.error(err.response?.data?.error || 'Please try again', 'Sign-In Failed');
+        // e.g. already signed in on another device: show the right button
+        refreshStatus();
       }
     } finally {
       setLoading(false);
@@ -241,8 +294,7 @@ export default function HomeScreen() {
 
       const { data: outData } = await checkOut(checkOutData);
 
-      setTodayStatus('checked_out');
-      if (outData?.record) setRecord(outData.record);
+      showStatus('checked_out', outData?.record || record);
       toast.success('You have been signed out. See you tomorrow!', 'Sign-Out Successful');
       Notifications.scheduleNotificationAsync({
         content: { title: 'Sign-Out Confirmed', body: 'See you tomorrow!', sound: true },
@@ -254,6 +306,7 @@ export default function HomeScreen() {
         await queueCheckOut(checkOutData);
       } else {
         toast.error(err.response?.data?.error || 'Please try again', 'Sign-Out Failed');
+        refreshStatus();
       }
     } finally {
       setLoading(false);
@@ -360,6 +413,28 @@ export default function HomeScreen() {
 
         {/* Main action first: no scrolling to sign in or out */}
         <View style={styles.actionSection}>
+          {!todayStatus && (
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.doneBtn]}
+              onPress={retryStatus}
+              disabled={!statusError}
+              accessibilityRole="button"
+              accessibilityLabel={statusError ? "Couldn't load your status. Tap to try again" : 'Checking your status'}
+            >
+              {statusError ? (
+                <>
+                  <Text style={styles.actionBtnText}>Couldn't load your status</Text>
+                  <Text style={styles.actionBtnSub}>Tap to try again</Text>
+                </>
+              ) : (
+                <>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.actionBtnSub}>Checking your status...</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
           {todayStatus === 'not_checked_in' && (
             <TouchableOpacity
               style={[styles.actionBtn, styles.checkInBtn, (!isWithin || loading) && styles.disabledBtn]}
@@ -437,7 +512,9 @@ export default function HomeScreen() {
           <View style={styles.rowStart}>
             <Text style={[styles.cardValue, { color: theme.text }]}>
               {todayStatus === 'checked_in' ? t('checkedIn') :
-               todayStatus === 'checked_out' ? t('checkedOut') : t('notCheckedIn')}
+               todayStatus === 'checked_out' ? t('checkedOut') :
+               todayStatus === 'not_checked_in' ? t('notCheckedIn') :
+               statusError ? 'Not loaded' : 'Checking...'}
             </Text>
             {checkedInAt && (
               <View style={[styles.pill, { backgroundColor: record?.is_late ? '#fef5e7' : '#e8f6ee' }]}>
