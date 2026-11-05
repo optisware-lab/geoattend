@@ -1,0 +1,76 @@
+name: App update (over the air)
+
+# Every push to main that changes the mobile app publishes an EAS Update to the
+# "preview" channel, so installed GeoAttend apps pick it up the next time they
+# are reopened. The server (Render) and web/dashboard (Vercel) already deploy
+# themselves on every push.
+#
+# One-time setup: add an Expo access token as the repository secret EXPO_TOKEN.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile-app/**'
+      - '!mobile-app/**/*.md'
+  workflow_dispatch:
+
+# One update at a time, in push order
+concurrency:
+  group: mobile-ota-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile-app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Native changes can't go over the air: stop (and email the pusher)
+      # instead of shipping an update that would break installed apps
+      - name: Check the change can go over the air
+        id: native
+        run: node ../.github/scripts/check-native-changes.js "${{ github.event.before }}" "${{ github.sha }}"
+
+      - name: Stop if a new app build is needed
+        if: steps.native.outputs.native == 'true'
+        run: |
+          echo "::error::Not published: build a new APK with 'npx eas-cli@latest build -p android --profile preview'"
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile-app/package-lock.json
+
+      - name: Check Expo access
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add your Expo access token as the repository secret EXPO_TOKEN (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install
+        run: npm ci
+
+      - name: Publish update
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'Manual update' }}
+        run: |
+          # First line of the commit message; passed through an env var so it
+          # is never run as shell code
+          MESSAGE="${COMMIT_MESSAGE%%$'\n'*}"
+          eas update --channel preview --platform all --message "$MESSAGE" --non-interactive
