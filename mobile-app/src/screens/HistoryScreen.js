@@ -5,10 +5,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getMyAttendance } from '../services/api';
 import { useTheme } from '../services/theme';
-import { formatDate, formatTime, formatDuration, relativeDay, toDate } from '../services/format';
+import { formatDate, formatTime, formatDuration, relativeDay, toDate, MONTHS_SHORT } from '../services/format';
 
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function HistoryScreen() {
   const { theme } = useTheme();

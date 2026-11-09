@@ -1,7 +1,8 @@
 // How dates and times look in the app (same rules as admin-dashboard/src/utils/format.js).
-// Dates always carry the weekday, e.g. "Thu, 23/04/2026".
+// Dates always carry the weekday, e.g. "Thu, 10-Sept, 2026".
 
 const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 const DAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -23,11 +24,18 @@ export function toDate(value) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** "Thu, 23/04/2026" */
+/** "10-Sept, 2026" */
+export function formatDay(value, fallback = '-') {
+  const d = toDate(value);
+  if (!d) return fallback;
+  return `${d.getDate()}-${MONTHS_SHORT[d.getMonth()]}, ${d.getFullYear()}`;
+}
+
+/** "Thu, 10-Sept, 2026" */
 export function formatDate(value, fallback = '-') {
   const d = toDate(value);
   if (!d) return fallback;
-  return `${DAYS_SHORT[d.getDay()]}, ${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+  return `${DAYS_SHORT[d.getDay()]}, ${formatDay(d)}`;
 }
 
 /** "Thursday, 23 April 2026" */
@@ -44,14 +52,14 @@ export function formatTime(value, fallback = '-') {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-/** "Thu, 23/04/2026 · 8:14 AM" */
+/** "Thu, 10-Sept, 2026 · 8:14 AM" */
 export function formatDateTime(value, fallback = '-') {
   const d = toDate(value);
   if (!d) return fallback;
   return `${formatDate(d)} · ${formatTime(d)}`;
 }
 
-/** "Thu, 23/04/2026 – Mon, 27/04/2026" (or one date when both are the same day) */
+/** "Thu, 10-Sept, 2026 – Mon, 14-Sept, 2026" (or one date when both are the same day) */
 export function formatDateRange(start, end, fallback = '-') {
   const a = toDate(start);
   const b = toDate(end);

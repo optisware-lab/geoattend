@@ -13,6 +13,7 @@ import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
 import { useI18n } from '../services/i18n';
+import { formatDay } from '../services/format';
 
 export default function ProfileScreen({ navigation, onLogout }) {
   const [profile, setProfile] = useState(null);
@@ -75,7 +76,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
   useEffect(() => { loadProfile(); }, []);
 
   const updateLabel = Updates.isEnabled && Updates.updateId && !Updates.isEmbeddedLaunch
-    ? `update ${Updates.updateId.slice(0, 8)}${Updates.createdAt ? ` (${new Date(Updates.createdAt).toLocaleDateString()})` : ''}`
+    ? `update ${Updates.updateId.slice(0, 8)}${Updates.createdAt ? ` (${formatDay(Updates.createdAt)})` : ''}`
     : 'built-in';
 
   const handleCheckForUpdates = async () => {
