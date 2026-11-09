@@ -14,7 +14,8 @@ async function logFraudEvent(db, { institutionId, staffUuid, eventType, details,
   }
 }
 
-const MAX_OFFLINE_AGE_MS = 24 * 60 * 60 * 1000;
+// Staff may go days without data (weekends, no bundle), so accept a week
+const MAX_OFFLINE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Sign-ins/outs made without internet are queued on the phone and synced
@@ -33,7 +34,7 @@ function resolveOfflineTime(body) {
   const clockSkew = Number.isFinite(sent) ? now - sent : 0;
   const corrected = Math.min(recorded + clockSkew, now);
   if (now - corrected > MAX_OFFLINE_AGE_MS) {
-    return { error: 'This offline record is more than 24 hours old and was not accepted. Please contact your administrator.' };
+    return { error: 'This offline record is more than 7 days old and was not accepted. Please contact your administrator.' };
   }
   const at = new Date(corrected);
   return { at, note: `Recorded offline at ${at.toISOString()}, synced at ${new Date(now).toISOString()}` };
@@ -394,8 +395,27 @@ exports.checkOut = async (req, res) => {
       'SELECT id FROM attendance_records WHERE staff_uuid = $1 AND date = $2 AND check_out_time IS NULL ORDER BY check_in_time DESC LIMIT 1',
       [staffUuid, today]
     );
+    let targetId = active.rows[0]?.id || null;
 
-    if (active.rows.length === 0) {
+    // A real sign-out made offline can reach the server after the scheduler
+    // already closed that day with an automatic sign-out. The real one wins.
+    let replacesAutoSignOut = false;
+    if (!targetId && offline.at) {
+      const autoClosed = await db.query(
+        `SELECT id FROM attendance_records
+         WHERE staff_uuid = $1 AND date = $2 AND check_out_time IS NOT NULL
+           AND notes LIKE '%[Auto sign-out]%'
+           AND check_in_time <= $3::timestamptz::timestamp
+         ORDER BY check_in_time DESC LIMIT 1`,
+        [staffUuid, today, offline.at.toISOString()]
+      );
+      if (autoClosed.rows.length > 0) {
+        targetId = autoClosed.rows[0].id;
+        replacesAutoSignOut = true;
+      }
+    }
+
+    if (!targetId) {
       return res.status(400).json({ error: 'No active sign-in found' });
     }
 
@@ -443,15 +463,22 @@ exports.checkOut = async (req, res) => {
       }
     }
 
+    // When replacing an automatic sign-out, its note is removed so reports no
+    // longer count this day as "didn't sign out"
     const record = await db.query(
       `UPDATE attendance_records
        SET check_out_time = GREATEST(COALESCE($5::timestamptz, NOW())::timestamp, check_in_time),
            check_out_latitude = $1, check_out_longitude = $2, check_out_method = $3,
-           notes = CASE WHEN $6::text IS NULL THEN notes ELSE concat_ws(' | ', notes, $6::text) END
+           notes = NULLIF(concat_ws(' | ',
+             NULLIF(CASE WHEN $7::boolean
+                      THEN btrim(regexp_replace(COALESCE(notes, ''), '\\s*\\|?\\s*\\[Auto sign-out\\][^|]*', '', 'g'), ' |')
+                      ELSE notes END, ''),
+             $6::text,
+             CASE WHEN $7::boolean THEN 'Replaced the automatic sign-out' END), '')
        WHERE id = $4
        RETURNING *`,
-      [latitude, longitude, method || 'gps', active.rows[0].id,
-       offline.at ? offline.at.toISOString() : null, offline.note]
+      [latitude, longitude, method || 'gps', targetId,
+       offline.at ? offline.at.toISOString() : null, offline.note, replacesAutoSignOut]
     );
 
     // Track overtime if signing out after work end time
