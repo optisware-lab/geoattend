@@ -110,8 +110,12 @@ api.interceptors.response.use(
     // Render/Neon instances can "sleep" and wake slowly (up to 30s on free tier).
     // If we get a true network error (no response), ping /health, wait for the server
     // to finish waking, then retry the original request once.
+    // A gateway error (502/503/504) means the server is restarting, e.g. during
+    // a deploy. Retry reads the same way; never repeat a sign-in or sign-out.
+    const gatewayError = [502, 503, 504].includes(error.response?.status)
+      && (originalRequest?.method || 'get').toLowerCase() === 'get';
     if (
-      !error.response &&
+      (!error.response || gatewayError) &&
       originalRequest &&
       !originalRequest._wakeAndRetry &&
       originalRequest.url !== '/health' &&

@@ -30,6 +30,29 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
+/** Turns a failed status request into words staff can act on. */
+function describeStatusError(err) {
+  const status = err?.response?.status;
+  const code = err?.response?.data?.code;
+  if (status === 402 || code === 'SUBSCRIPTION_REQUIRED') {
+    return {
+      title: 'Sign-in is paused for your school',
+      detail: "Your school's GeoAttend plan has ended. Please ask your admin to renew it.",
+      paused: true,
+    };
+  }
+  if (status === 401) {
+    return { title: 'Please log in again', detail: 'Your login could not be confirmed.' };
+  }
+  if (!err?.response || status >= 500) {
+    return { title: 'Server is busy', detail: 'Trying again automatically. Tap to retry now.' };
+  }
+  return {
+    title: "Couldn't load your status",
+    detail: err?.response?.data?.error ? `${err.response.data.error}. Tap to try again.` : 'Trying again automatically. Tap to retry now.',
+  };
+}
+
 export default function HomeScreen() {
   const { theme } = useTheme();
   const { t } = useI18n();
@@ -39,7 +62,10 @@ export default function HomeScreen() {
   // null = not known yet. Never assume "not signed in": showing Sign In to
   // someone already signed in makes the tap fail.
   const [todayStatus, setTodayStatus] = useState(null);
-  const [statusError, setStatusError] = useState(false);
+  // Why today's status couldn't load: null, or { title, detail, retrying }
+  const [statusError, setStatusError] = useState(null);
+  const retryTimer = useRef(null);
+  const retryCount = useRef(0);
   const [record, setRecord] = useState(null);
   const [location, setLocation] = useState(null);
   const [distance, setDistance] = useState(null);
@@ -66,7 +92,7 @@ export default function HomeScreen() {
     statusDay.current = new Date().toDateString();
     setTodayStatus(status);
     setRecord(rec || null);
-    setStatusError(false);
+    setStatusError(null);
     saveTodayStatus(status, rec);
   }, []);
 
@@ -90,8 +116,10 @@ export default function HomeScreen() {
       statusDay.current = new Date().toDateString();
       setTodayStatus((await getPendingStatus()) || data.status);
       setRecord(data.record || null);
-      setStatusError(false);
-    } catch {
+      setStatusError(null);
+      retryCount.current = 0;
+      clearTimeout(retryTimer.current);
+    } catch (err) {
       if (known) return; // keep showing what we know
       if (!(await isOnline())) {
         // Offline with nothing saved: allow a sign-in, which is queued and
@@ -99,12 +127,23 @@ export default function HomeScreen() {
         setTodayStatus((cur) => cur || 'not_checked_in');
         return;
       }
-      setStatusError(true);
+      setStatusError(describeStatusError(err));
+      // Try again by itself: 5 s, 15 s, 30 s, then every minute
+      clearTimeout(retryTimer.current);
+      const delays = [5000, 15000, 30000];
+      const delay = delays[retryCount.current] || 60000;
+      retryCount.current += 1;
+      retryTimer.current = setTimeout(() => refreshStatusRef.current?.(), delay);
     }
   }, []);
 
+  const refreshStatusRef = useRef(refreshStatus);
+  refreshStatusRef.current = refreshStatus;
+  useEffect(() => () => clearTimeout(retryTimer.current), []);
+
   const retryStatus = () => {
-    setStatusError(false);
+    setStatusError((cur) => (cur ? { ...cur, retrying: true } : cur));
+    retryCount.current = 0;
     refreshStatus();
   };
 
@@ -431,16 +470,21 @@ export default function HomeScreen() {
         <View style={styles.actionSection}>
           {!todayStatus && (
             <TouchableOpacity
-              style={[styles.actionBtn, styles.doneBtn]}
+              style={[styles.actionBtn, statusError?.paused ? styles.pausedBtn : styles.doneBtn]}
               onPress={retryStatus}
-              disabled={!statusError}
+              disabled={!statusError || statusError.retrying}
               accessibilityRole="button"
-              accessibilityLabel={statusError ? "Couldn't load your status. Tap to try again" : 'Checking your status'}
+              accessibilityLabel={statusError ? `${statusError.title}. ${statusError.detail}` : 'Checking your status'}
             >
-              {statusError ? (
+              {statusError?.retrying ? (
                 <>
-                  <Text style={styles.actionBtnText}>Couldn't load your status</Text>
-                  <Text style={styles.actionBtnSub}>Tap to try again</Text>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.actionBtnSub}>Trying again...</Text>
+                </>
+              ) : statusError ? (
+                <>
+                  <Text style={styles.actionBtnText}>{statusError.title}</Text>
+                  <Text style={styles.actionBtnSub}>{statusError.detail}</Text>
                 </>
               ) : (
                 <>
@@ -530,7 +574,7 @@ export default function HomeScreen() {
               {todayStatus === 'checked_in' ? t('checkedIn') :
                todayStatus === 'checked_out' ? t('checkedOut') :
                todayStatus === 'not_checked_in' ? t('notCheckedIn') :
-               statusError ? 'Not loaded' : 'Checking...'}
+               statusError ? (statusError.paused ? 'Paused (plan ended)' : 'Waiting for server...') : 'Checking...'}
             </Text>
             {checkedInAt && (
               <View style={[styles.pill, { backgroundColor: record?.is_late ? '#fef5e7' : '#e8f6ee' }]}>
@@ -683,6 +727,7 @@ const styles = StyleSheet.create({
   checkInBtn: { backgroundColor: '#27ae60' },
   checkOutBtn: { backgroundColor: '#e74c3c' },
   doneBtn: { backgroundColor: '#95a5a6' },
+  pausedBtn: { backgroundColor: '#b9770e' },
   disabledBtn: { opacity: 0.5 },
   actionBtnText: { fontSize: 20, fontWeight: '700', color: '#fff' },
   actionBtnSub: { fontSize: 13, color: 'rgba(255,255,255,0.85)', marginTop: 4, textAlign: 'center', paddingHorizontal: 12 },

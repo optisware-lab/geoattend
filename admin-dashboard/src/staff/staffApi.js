@@ -138,6 +138,10 @@ export function webDeviceId() {
 }
 
 export function errorMessage(err, fallback) {
+  if (err?.response?.status === 402 || err?.response?.data?.code === 'SUBSCRIPTION_REQUIRED') {
+    return "Sign-in is paused for your school: the GeoAttend plan has ended. Please ask your admin to renew it.";
+  }
+  if ([502, 503, 504].includes(err?.response?.status)) return 'The server is restarting. Please try again in a minute.';
   if (err?.response?.data?.error) return err.response.data.error;
   if (err?.code === 'ECONNABORTED') return 'The server is taking too long (it may be waking up). Please try again.';
   if (!err?.response) return 'No connection to the server. Check your internet and try again.';
