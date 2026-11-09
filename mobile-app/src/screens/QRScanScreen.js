@@ -111,15 +111,32 @@ async function checkInWithQrData(data) {
     ...presenceFields,
   };
 
-  const connected = await isOnline();
-  if (!connected) {
+  const saveForLater = async () => {
     await addToQueue('check-in', payload);
     const qLen = await getQueueLength();
-    Alert.alert('Saved Offline', `Sign-in queued. Will sync when internet is back. Pending: ${qLen}`);
+    Alert.alert(
+      'Saved Offline',
+      `Sign-in saved on this phone. It is sent by itself when you have internet. Waiting: ${qLen}`,
+      [{ text: 'OK', onPress: () => goHomeAfterCheckIn?.() }]
+    );
+  };
+
+  if (!(await isOnline())) {
+    await saveForLater();
     return;
   }
 
-  const { data: result } = await checkIn(payload);
+  let result;
+  try {
+    ({ data: result } = await checkIn(payload));
+  } catch (err) {
+    // No answer from the server (weak or no internet): keep it for later
+    if (!err.response) {
+      await saveForLater();
+      return;
+    }
+    throw err;
+  }
   showCheckInResult(result);
 }
 

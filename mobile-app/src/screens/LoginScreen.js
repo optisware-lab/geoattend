@@ -12,6 +12,8 @@ import { authenticateWithBiometric, isBiometricAvailable, isBiometricEnabled, se
 import { getCredentials, saveCredentials } from '../services/credentials';
 import GoogleSignInButton from '../components/GoogleSignInButton';
 
+const NO_INTERNET_LOGIN = 'No internet. Logging in needs internet once; after that you stay logged in and the app works offline.';
+
 export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId, onRegister, onGoogleProfile }) {
   const toast = useToast();
   const [institutionCode, setInstitutionCode] = useState('');
@@ -104,7 +106,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
     } catch (err) {
       const serverMsg = err.response?.data?.error;
       const debug = err.response?.data?.debug;
-      const msg = serverMsg || err.message || 'Unable to connect to server';
+      const msg = serverMsg || (!err.response ? NO_INTERNET_LOGIN : err.message) || 'Unable to connect to server';
       toast.error(debug ? `${msg} (${debug})` : msg, 'Login Failed');
     } finally {
       setLoading(false);
@@ -155,7 +157,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
 
       onLogin();
     } catch (err) {
-      const msg = err.response?.data?.error || err.message || 'Biometric login failed';
+      const msg = err.response?.data?.error || (!err.response ? NO_INTERNET_LOGIN : err.message) || 'Biometric login failed';
       toast.error(msg, 'Login Failed');
     } finally {
       setLoading(false);

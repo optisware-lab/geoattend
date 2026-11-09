@@ -1,7 +1,11 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import NetInfo from '@react-native-community/netinfo';
 import { TODAY_STATUS_KEY } from './todayStatus';
+
+// Work hours and days set by the admin, kept so they show while offline
+export const RULES_KEY = 'attendanceRules';
 
 // Resolve API base URL: .env override, then app.json extra, then the live backend.
 // For a local backend set EXPO_PUBLIC_API_BASE_URL=http://<your-LAN-IP>:5000/api in mobile-app/.env.
@@ -47,7 +51,7 @@ api.interceptors.request.use(async (config) => {
 // renewal never signs anyone out; only the server refusing the account does.
 
 // Everything removed from the phone on log out
-export const SESSION_KEYS = ['token', 'user', 'institution', TODAY_STATUS_KEY];
+export const SESSION_KEYS = ['token', 'user', 'institution', TODAY_STATUS_KEY, RULES_KEY];
 let refreshPromise = null;
 const sessionEndedListeners = new Set();
 
@@ -122,6 +126,14 @@ api.interceptors.response.use(
       typeof originalRequest.url === 'string'
     ) {
       originalRequest._wakeAndRetry = true;
+      // No internet on the phone: fail now (no wake-up wait) so screens can
+      // save sign-ins for later straight away
+      if (!error.response) {
+        const net = await NetInfo.fetch().catch(() => null);
+        if (net && (!net.isConnected || net.isInternetReachable === false)) {
+          return Promise.reject(error);
+        }
+      }
       try {
         await api.get('/health', { timeout: 30000 });
       } catch {

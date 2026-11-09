@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Updates from 'expo-updates';
 import * as ImagePicker from 'expo-image-picker';
 import { getProfile, changePassword, SESSION_KEYS } from '../services/api';
+import { getQueueLength } from '../services/offlineQueue';
 import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
 import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
@@ -187,8 +188,18 @@ export default function ProfileScreen({ navigation, onLogout }) {
     } catch {}
   };
 
-  const handleSwitchAccount = () => {
-    Alert.alert('Switch Account', 'Log out and switch to a different staff account on this device?', [
+  // Sign-ins saved offline stay on the phone after a log out and are sent the
+  // next time this person logs in here, so say so before they leave
+  const pendingNote = async () => {
+    const waiting = await getQueueLength().catch(() => 0);
+    return waiting > 0
+      ? `\n\n${waiting} sign-in(s) made offline have not been sent yet. They will be sent the next time you log in on this phone with internet.`
+      : '';
+  };
+
+  const handleSwitchAccount = async () => {
+    const note = await pendingNote();
+    Alert.alert('Switch Account', `Log out and switch to a different staff account on this device?${note}`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Switch',
@@ -201,8 +212,9 @@ export default function ProfileScreen({ navigation, onLogout }) {
     ]);
   };
 
-  const handleLogout = () => {
-    Alert.alert('Log Out', 'Are you sure you want to log out?', [
+  const handleLogout = async () => {
+    const note = await pendingNote();
+    Alert.alert('Log Out', `Are you sure you want to log out?${note}`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Log Out',

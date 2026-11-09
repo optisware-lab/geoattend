@@ -7,9 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { getCurrentLocation, calculateDistance, watchLocation } from '../services/location';
-import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent, getAttendanceRules } from '../services/api';
+import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent, getAttendanceRules, RULES_KEY } from '../services/api';
 import { formatDateLong, formatTime, formatDuration } from '../services/format';
-import { addToQueue, syncQueue, getQueueLength, getPendingStatus, isOnline } from '../services/offlineQueue';
+import { addToQueue, syncQueue, getQueueLength, getPendingStatus, isOnline, isOnlineState } from '../services/offlineQueue';
 import { saveTodayStatus, readTodayStatus } from '../services/todayStatus';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -109,6 +109,18 @@ export default function HomeScreen() {
       if (saved?.record) setRecord((cur) => cur || saved.record);
     }
 
+    if (!(await isOnline())) {
+      // No internet: don't wait for the server. With nothing saved, allow a
+      // sign-in, which is queued and checked by the server when it syncs.
+      clearTimeout(retryTimer.current);
+      setStatusError(null);
+      if (!known) {
+        statusDay.current = new Date().toDateString();
+        setTodayStatus((cur) => cur || 'not_checked_in');
+      }
+      return;
+    }
+
     try {
       const { data } = await getTodayStatus();
       saveTodayStatus(data.status, data.record);
@@ -175,8 +187,10 @@ export default function HomeScreen() {
       let stop = () => {};
       let cancelled = false;
       setNow(new Date());
-      // Coming back to this tab (e.g. after a QR sign-in) shows the latest status
+      // Coming back to this tab (e.g. after a QR sign-in) shows the latest
+      // status and sends anything saved offline
       refreshStatus();
+      runSyncRef.current?.();
       watchLocation((loc) => { if (!cancelled) setLocation(loc); })
         .then((fn) => { if (cancelled) fn(); else stop = fn; })
         .catch(() => {});
@@ -193,60 +207,87 @@ export default function HomeScreen() {
     });
   }, [toast]);
 
+  // Sends sign-ins saved offline, then updates the screen. Safe to call often:
+  // a call while one is still running does nothing.
+  const syncing = useRef(false);
+  const runSync = useCallback(async () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    try {
+      const result = await syncQueue();
+      reportSync(result);
+      if (result.synced > 0 || result.rejected.length > 0) refreshStatus();
+    } catch {
+      // Tried again on the next minute, reconnect or app open
+    } finally {
+      syncing.current = false;
+      setPendingSync(await getQueueLength().catch(() => 0));
+    }
+  }, [reportSync, refreshStatus]);
+  const runSyncRef = useRef(runSync);
+  runSyncRef.current = runSync;
+
   const loadData = useCallback(async () => {
     const userData = JSON.parse(await AsyncStorage.getItem('user'));
     const instData = JSON.parse(await AsyncStorage.getItem('institution'));
     setUser(userData);
     setInstitution(instData);
 
-    try {
-      const loc = await getCurrentLocation();
-      setLocation(loc);
-      if (instData) {
-        const dist = calculateDistance(loc.latitude, loc.longitude, instData.latitude, instData.longitude);
-        setDistance(dist);
-      }
-    } catch {
-      // Location might not be available
-    }
+    // Without internet the phone finds itself by GPS only, which can take a
+    // while: never hold the rest of the screen up for it
+    getCurrentLocation().then(setLocation).catch(() => {});
 
-    getAttendanceRules().then(({ data }) => { if (data && typeof data === 'object') setRules(data); }).catch(() => {});
+    // Work hours: show the saved copy at once (works offline), then refresh
+    AsyncStorage.getItem(RULES_KEY)
+      .then((raw) => {
+        const saved = raw ? JSON.parse(raw) : null;
+        if (saved && typeof saved === 'object') setRules((cur) => cur || saved);
+      })
+      .catch(() => {});
+    getAttendanceRules().then(({ data }) => {
+      if (data && typeof data === 'object') {
+        setRules(data);
+        AsyncStorage.setItem(RULES_KEY, JSON.stringify(data)).catch(() => {});
+      }
+    }).catch(() => {});
 
     // Sync queued offline sign-ins/outs first so today's status is up to date
     const connected = await isOnline();
     setOnline(connected);
-    if (connected) {
-      reportSync(await syncQueue());
-    }
+    if (connected) await runSync();
 
     await refreshStatus();
 
-    try {
-      const { data } = await getWeeklyStats();
-      setStats(data.month);
-    } catch {}
+    if (connected) {
+      try {
+        const { data } = await getWeeklyStats();
+        setStats(data.month);
+      } catch {}
+    }
 
-    const qLen = await getQueueLength();
-    setPendingSync(qLen);
-  }, [reportSync, refreshStatus]);
+    setPendingSync(await getQueueLength().catch(() => 0));
+  }, [runSync, refreshStatus]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-sync queued sign-ins once internet is back
+  // Sync queued sign-ins once internet is back
+  const wasOnline = useRef(null);
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(async (state) => {
-      const connected = !!state.isConnected;
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const connected = isOnlineState(state);
       setOnline(connected);
-      if (connected) {
-        const result = await syncQueue();
-        reportSync(result);
-        if (result.synced > 0 || result.rejected.length > 0) await loadData();
-      }
-      const qLen = await getQueueLength();
-      setPendingSync(qLen);
+      if (state.isConnected) runSync();
+      if (connected && wasOnline.current === false) refreshStatus();
+      wasOnline.current = connected;
     });
     return () => unsubscribe();
-  }, [loadData, reportSync]);
+  }, [runSync, refreshStatus]);
+
+  // While the app is open, keep trying to send saved sign-ins every minute
+  useEffect(() => {
+    const id = setInterval(() => runSync(), 60000);
+    return () => clearInterval(id);
+  }, [runSync]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -287,14 +328,17 @@ export default function HomeScreen() {
       ...presence.fields,
     };
 
+    const queueCheckIn = async () => {
+      await addToQueue('check-in', checkInData);
+      setPendingSync(await getQueueLength());
+      setTodayStatus('checked_in');
+      toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
+      runSync(); // goes through at once if a connection is there after all
+    };
+
     try {
-      const connected = await isOnline();
-      if (!connected) {
-        await addToQueue('check-in', checkInData);
-        setPendingSync(await getQueueLength());
-        setTodayStatus('checked_in');
-        toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
-        setLoading(false);
+      if (!(await isOnline())) {
+        await queueCheckIn();
         return;
       }
 
@@ -310,10 +354,7 @@ export default function HomeScreen() {
     } catch (err) {
       // If network error, queue offline
       if (!err.response) {
-        await addToQueue('check-in', checkInData);
-        setPendingSync(await getQueueLength());
-        setTodayStatus('checked_in');
-        toast.warning('Sign-in saved. Will sync when back online.', 'Saved Offline');
+        await queueCheckIn().catch(() => toast.error('Could not save the sign-in on this phone. Please try again.', 'Sign-In Failed'));
       } else {
         toast.error(err.response?.data?.error || 'Please try again', 'Sign-In Failed');
         // e.g. already signed in on another device: show the right button
@@ -373,6 +414,7 @@ export default function HomeScreen() {
     setPendingSync(await getQueueLength());
     setTodayStatus('checked_out');
     toast.warning('Sign-out saved. Will sync when back online.', 'Saved Offline');
+    runSync(); // goes through at once if a connection is there after all
   };
 
   // Report inside/outside to the server so it can record both leaving the
@@ -442,7 +484,11 @@ export default function HomeScreen() {
   };
 
   let checkInHint = t('gpsVerification');
-  if (!location) checkInHint = 'Finding your location... (turn on GPS)';
+  if (!location) {
+    checkInHint = online
+      ? 'Finding your location... (turn on GPS)'
+      : 'No internet, so GPS only: can take a minute. Step outside or near a window.';
+  }
   else if (institution && distance !== null && !isWithin) checkInHint = `${distance - radius}m too far. Unlocks when you arrive.`;
 
   return (
