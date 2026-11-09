@@ -83,7 +83,16 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
   };
 
   // Table with a header row that repeats on every page it spans
-  const table = (cols, rows, { rowHeight = 15, headerHeight = 18, minRows = 3 } = {}) => {
+  const table = (cols, rows, { rowHeight = 15, headerHeight = 18, minRows = 3, continued } = {}) => {
+    // On a new page, say what the table belongs to before repeating its header
+    const breakPage = () => {
+      newPage();
+      if (continued) {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor(C.muted).text(continued, LEFT, doc.y);
+        doc.y += 4;
+      }
+      drawHeader();
+    };
     const drawHeader = () => {
       const y = doc.y;
       doc.rect(LEFT, y, WIDTH, headerHeight).fill(C.navy);
@@ -105,14 +114,14 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
     drawHeader();
     rows.forEach((row, i) => {
       if (row.group) {
-        if (doc.y + rowHeight * 2 + 4 > BOTTOM) { newPage(); drawHeader(); }
+        if (doc.y + rowHeight * 2 + 4 > BOTTOM) { breakPage(); }
         const y = doc.y;
         doc.rect(LEFT, y, WIDTH, rowHeight + 2).fill(C.tint);
         cell(row.group, LEFT + 4, y + 4.5, WIDTH - 8, { bold: true, color: C.navy, size: 8 });
         doc.y = y + rowHeight + 2;
         return;
       }
-      if (doc.y + rowHeight > BOTTOM) { newPage(); drawHeader(); }
+      if (doc.y + rowHeight > BOTTOM) { breakPage(); }
       const y = doc.y;
       if (i % 2 === 1) doc.rect(LEFT, y, WIDTH, rowHeight).fill(C.stripe);
       let x = LEFT;
@@ -232,8 +241,11 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
   doc.y = keyY + 30;
 
   // ---- 2. One section per week ----
+  // Weeks follow each other; a week moves to the next page only when its
+  // banner, summary and first few rows wouldn't fit on this one.
   weeks.forEach((w) => {
-    newPage();
+    doc.y += 14;
+    ensure(150);
 
     // Week banner
     const by = doc.y;
@@ -288,7 +300,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
           });
           return row;
         });
-      table(cols, rows, { headerHeight: 22, rowHeight: 15 });
+      table(cols, rows, { headerHeight: 22, rowHeight: 15, continued: `Week ${w.number} (continued)  ·  ${formatDateRange(w.start, w.end)}` });
     } else {
       doc.font('Helvetica').fontSize(9).fillColor(C.muted).text('Nobody signed in this week.', LEFT, doc.y);
       doc.y += 10;
@@ -298,14 +310,14 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
     const listOf = (rows) => rows.map((r) => `${r.name} (${r.staffId})`).join(',   ');
     if (w.inactive.length) {
       ensure(40);
-      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.red).text(`Did not sign in this week (${w.inactive.length})`, LEFT, doc.y);
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.red).text(`Did not sign in during Week ${w.number} (${w.inactive.length})`, LEFT, doc.y);
       doc.y += 3;
       doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(listOf(w.inactive), LEFT, doc.y, { width: WIDTH, lineGap: 2 });
       doc.y += 8;
     }
     if (w.onLeave.length) {
       ensure(40);
-      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.blue).text(`On leave all week (${w.onLeave.length})`, LEFT, doc.y);
+      doc.font('Helvetica-Bold').fontSize(10.5).fillColor(C.blue).text(`On leave all of Week ${w.number} (${w.onLeave.length})`, LEFT, doc.y);
       doc.y += 3;
       doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(listOf(w.onLeave), LEFT, doc.y, { width: WIDTH, lineGap: 2 });
       doc.y += 8;
@@ -314,7 +326,8 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
 
   // ---- 3. Full sign-in log ----
   if (records.length) {
-    newPage();
+    doc.y += 16;
+    ensure(110);
     sectionTitle('Full sign-in log', 'Every sign-in in the period, day by day.');
 
     const byDay = new Map();
@@ -356,7 +369,8 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
         { key: 'method', label: 'Method', width: 50 },
         { key: 'status', label: 'Status', width: WIDTH - 140 - 55 - 78 - 50 - 50 - 45 - 50 },
       ],
-      rows
+      rows,
+      { continued: 'Full sign-in log (continued)' }
     );
   }
 
