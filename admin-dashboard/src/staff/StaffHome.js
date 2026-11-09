@@ -664,7 +664,7 @@ export default function StaffHome({ onSignOut }) {
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   // What a sign-in must include (from today's status); photo on unless the admin turned it off
-  const [requirements, setRequirements] = useState({ selfie: true, biometric: true });
+  const [requirements, setRequirements] = useState({ selfie: true });
   const [selfieRequest, setSelfieRequest] = useState(null);
   const [rules, setRules] = useState(null);
   const [now, setNow] = useState(() => new Date());
@@ -770,10 +770,9 @@ export default function StaffHome({ onSignOut }) {
   };
 
   // The sign-in photo proves it is the account owner, not a colleague with
-  // their phone. Browsers can't use the phone's fingerprint, so the photo is
-  // the identity check here. Null when the person cancelled.
+  // their phone. Null when the person cancelled.
   const presenceFields = async () => {
-    const fields = { biometric: 'unsupported', selfieCapable: true };
+    const fields = { selfieCapable: true };
     if (!requirements.selfie) return fields;
     const selfie = await new Promise((resolve) => setSelfieRequest({ resolve }));
     return selfie ? { ...fields, selfie } : null;
@@ -864,7 +863,6 @@ export default function StaffHome({ onSignOut }) {
       form.append('latitude', String(loc.latitude));
       form.append('longitude', String(loc.longitude));
       form.append('deviceId', webDeviceId());
-      form.append('biometric', presence.biometric);
       form.append('selfieCapable', 'true');
       if (presence.selfie) form.append('selfie', presence.selfie);
       const { data } = await checkInFromImage(form);

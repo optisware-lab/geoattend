@@ -41,8 +41,6 @@ const translations = {
     signOut: 'Log Out',
     darkMode: 'Dark Mode',
     lightMode: 'Light Mode',
-    enableFingerprint: 'Enable Fingerprint Login',
-    disableFingerprint: 'Disable Fingerprint Login',
     // History
     attendanceHistory: 'Attendance History',
     records: 'records',
@@ -94,8 +92,6 @@ const translations = {
     signOut: 'Firi mu',
     darkMode: 'Tumi Sum',
     lightMode: 'Hann Tumi',
-    enableFingerprint: 'Ma Nsateaa Login nyɛ adwuma',
-    disableFingerprint: 'Gyae Nsateaa Login',
     // History
     attendanceHistory: 'Abrabɔ Nhoma',
     records: 'nsɛm',

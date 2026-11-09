@@ -11,7 +11,6 @@ const STORED_WIDTH = 480;
 // How long photos are kept before the scheduler deletes them
 const SELFIE_RETENTION_DAYS = parseInt(process.env.SELFIE_RETENTION_DAYS || '90', 10);
 
-const BIOMETRIC_RESULTS = ['passed', 'unavailable', 'unsupported', 'not_required'];
 
 function badPhoto(message) {
   const err = new Error(message);
@@ -42,9 +41,4 @@ async function normalizeSelfie(input) {
   return image.quality(70).getBufferAsync(Jimp.MIME_JPEG);
 }
 
-/** The fingerprint/Face ID result the app reports, or null if it sent none (older app). */
-function normalizeBiometric(value) {
-  return BIOMETRIC_RESULTS.includes(value) ? value : null;
-}
-
-module.exports = { normalizeSelfie, normalizeBiometric, SELFIE_RETENTION_DAYS };
+module.exports = { normalizeSelfie, SELFIE_RETENTION_DAYS };

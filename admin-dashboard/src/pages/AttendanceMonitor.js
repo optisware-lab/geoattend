@@ -182,11 +182,6 @@ export default function AttendanceMonitor() {
                       <Badge tone="red" icon={FiCameraOff}>No photo</Badge>
                     </span>
                   )}
-                  {r.check_in_biometric === 'unavailable' && (
-                    <span title="This phone has no fingerprint or Face ID set up, so only the photo confirms who signed in.">
-                      <Badge tone="gray">No fingerprint</Badge>
-                    </span>
-                  )}
                 </div>
               </div>
             );

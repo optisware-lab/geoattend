@@ -1,6 +1,6 @@
 const { isWithinGeofence } = require('../utils/geofence');
 const { decodeQrFromBuffer } = require('../utils/qrDecoder');
-const { normalizeSelfie, normalizeBiometric, SELFIE_RETENTION_DAYS } = require('../utils/selfie');
+const { normalizeSelfie, SELFIE_RETENTION_DAYS } = require('../utils/selfie');
 
 async function logFraudEvent(db, { institutionId, staffUuid, eventType, details, ipAddress }) {
   try {
@@ -71,7 +71,7 @@ function computeEarningsEstimate(record, staffRate, workEndTime, overtimeMultipl
 async function loadEarningsContext(db, institutionId, staffUuid) {
   const institution = await db.query(
     `SELECT latitude, longitude, geofence_radius, payment_mode, currency, qr_rotation_token,
-            require_checkin_selfie, require_checkin_biometric
+            require_checkin_selfie
      FROM institutions WHERE id = $1`,
     [institutionId]
   );
@@ -90,14 +90,16 @@ async function loadEarningsContext(db, institutionId, staffUuid) {
   };
 }
 
-/** What a sign-in must include for this institution (both on unless the admin turns them off). */
+/** What a sign-in must include for this institution (the photo, unless the admin turns it off). */
 async function getCheckInRequirements(db, institutionId) {
   const result = await db.query(
-    'SELECT require_checkin_selfie, require_checkin_biometric FROM institutions WHERE id = $1',
+    'SELECT require_checkin_selfie FROM institutions WHERE id = $1',
     [institutionId]
   );
   const row = result.rows[0] || {};
-  return { selfie: row.require_checkin_selfie !== false, biometric: row.require_checkin_biometric !== false };
+  // Fingerprint was removed. biometric: false stops apps that haven't updated
+  // yet from still asking for it.
+  return { selfie: row.require_checkin_selfie !== false, biometric: false };
 }
 
 exports.checkIn = async (req, res) => {
@@ -110,7 +112,7 @@ exports.checkIn = async (req, res) => {
 async function runCheckIn(req, res, body) {
   const db = req.tenantDb;
   try {
-    const { latitude, longitude, method, deviceId, qrCode, qrToken, selfie, biometric } = body;
+    const { latitude, longitude, method, deviceId, qrCode, qrToken, selfie } = body;
     // Apps that can take the sign-in photo say so; older versions can't yet
     const selfieCapable = body.selfieCapable === true || body.selfieCapable === 'true';
     const staffUuid = req.user.id;
@@ -276,11 +278,11 @@ async function runCheckIn(req, res, body) {
       `INSERT INTO attendance_records
         (staff_uuid, institution_id, check_in_time, check_in_latitude, check_in_longitude,
          check_in_method, device_id, is_late, is_within_geofence, date, notes,
-         check_in_selfie, check_in_biometric)
-       VALUES ($1, $2, COALESCE($10::timestamptz, NOW()), $3, $4, $5, $6, $7, $8, $9, $11, $12, $13)
+         check_in_selfie)
+       VALUES ($1, $2, COALESCE($10::timestamptz, NOW()), $3, $4, $5, $6, $7, $8, $9, $11, $12)
        RETURNING *`,
       [staffUuid, institutionId, latitude, longitude, method, deviceId || null, isLate, withinGeofence, today,
-       offline.at ? offline.at.toISOString() : null, offline.note, selfieStatus, normalizeBiometric(biometric)]
+       offline.at ? offline.at.toISOString() : null, offline.note, selfieStatus]
     );
 
     if (selfieJpeg) {
@@ -369,7 +371,6 @@ exports.checkInFromImage = async (req, res) => {
       qrCode,
       qrToken,
       selfie: req.body.selfie,
-      biometric: req.body.biometric,
       selfieCapable: req.body.selfieCapable,
     });
   } catch (err) {

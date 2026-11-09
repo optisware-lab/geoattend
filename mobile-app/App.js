@@ -20,7 +20,6 @@ import GoogleProfileScreen from './src/screens/GoogleProfileScreen';
 import { registerForPushNotifications, syncWorkReminders, clearWorkReminders } from './src/services/notifications';
 import { ThemeProvider } from './src/services/theme';
 import { I18nProvider } from './src/services/i18n';
-import { isBiometricAvailable, authenticateWithBiometric, isBiometricEnabled } from './src/services/biometric';
 import HomeScreen from './src/screens/HomeScreen';
 import QRScanScreen from './src/screens/QRScanScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
@@ -102,25 +101,10 @@ export default function App() {
     AsyncStorage.getItem('token').then(async (token) => {
       // Staff-only app: drop the account-type preference left by older builds
       AsyncStorage.removeItem('memberType').catch(() => {});
+      // Fingerprint login was removed: drop its old on/off setting
+      AsyncStorage.removeItem('biometricEnabled').catch(() => {});
 
-      if (token) {
-        // Check biometric — but always keep user logged in
-        try {
-          const bioEnabled = await isBiometricEnabled();
-          const bioAvailable = await isBiometricAvailable();
-          if (bioEnabled && bioAvailable) {
-            const success = await authenticateWithBiometric();
-            if (!success) {
-              // Biometric failed — still logged in but show login screen for security
-              // Don't clear token — they can retry or use password
-              setLoading(false);
-              return;
-            }
-          }
-        } catch {}
-
-        setIsLoggedIn(true);
-      }
+      if (token) setIsLoggedIn(true);
       setLoading(false);
     });
   }, []);

@@ -11,7 +11,6 @@ import { getProfile, changePassword, SESSION_KEYS } from '../services/api';
 import { getQueueLength } from '../services/offlineQueue';
 import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
-import { isBiometricAvailable, isBiometricEnabled, setBiometricEnabled } from '../services/biometric';
 import { useI18n } from '../services/i18n';
 import { formatDay } from '../services/format';
 
@@ -25,15 +24,8 @@ export default function ProfileScreen({ navigation, onLogout }) {
   const { isDark, toggleTheme, theme } = useTheme();
   const { t, lang, switchLanguage } = useI18n();
   const toast = useToast();
-  const [bioAvailable, setBioAvailable] = useState(false);
-  const [bioEnabled, setBioEnabled] = useState(false);
   const [profileError, setProfileError] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-
-  useEffect(() => {
-    isBiometricAvailable().then(setBioAvailable);
-    isBiometricEnabled().then(setBioEnabled);
-  }, []);
 
   // Show the details saved at login straight away, then refresh from the
   // server (which can take a while when it is waking up or offline)
@@ -338,17 +330,6 @@ export default function ProfileScreen({ navigation, onLogout }) {
                   <Text style={styles.submitBtnText}>{loading ? 'Saving...' : 'Update Password'}</Text>
                 </TouchableOpacity>
               </View>
-            )}
-
-            {bioAvailable && (
-              <TouchableOpacity style={styles.passwordBtn} onPress={async () => {
-                const newVal = !bioEnabled;
-                await setBiometricEnabled(newVal);
-                setBioEnabled(newVal);
-                toast.success(`Fingerprint login ${newVal ? 'enabled' : 'disabled'}`);
-              }}>
-                <Text style={styles.passwordBtnText}>{bioEnabled ? '🔓 Disable Fingerprint Login' : '🔐 Enable Fingerprint Login'}</Text>
-              </TouchableOpacity>
             )}
 
             <TouchableOpacity style={styles.passwordBtn} onPress={() => switchLanguage(lang === 'en' ? 'tw' : 'en')}>

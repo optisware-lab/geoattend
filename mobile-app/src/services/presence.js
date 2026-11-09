@@ -1,13 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as LocalAuthentication from 'expo-local-authentication';
 
 // Proves the person signing in is the account owner, not a colleague holding
-// their phone: a fingerprint/Face ID check, then a sign-in photo. What is
+// their phone: a sign-in photo taken with the front camera. Whether it is
 // required comes from the institution's settings (sent with today's status).
 
 const REQUIREMENTS_KEY = 'checkInRequirements';
-// Until the server has told us otherwise, ask for both
-const DEFAULT_REQUIREMENTS = { selfie: true, biometric: true };
+// Until the server has told us otherwise, ask for the photo
+const DEFAULT_REQUIREMENTS = { selfie: true };
 
 let openSelfieCamera = null;
 
@@ -32,34 +31,12 @@ async function getCheckInRequirements() {
 }
 
 /**
- * Runs the identity checks before a sign-in.
+ * Takes the sign-in photo before a sign-in.
  * Returns { fields } to add to the sign-in request, or { cancelled, message }
- * when the person stopped or failed a check.
+ * when the person stopped.
  */
 export async function confirmPresence() {
   const required = await getCheckInRequirements();
-
-  let biometric = 'not_required';
-  if (required.biometric) {
-    const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
-    const enrolled = hasHardware && await LocalAuthentication.isEnrolledAsync().catch(() => false);
-    if (!enrolled) {
-      // Phones without a fingerprint/Face ID set up can still sign in; the
-      // admin sees this on the record
-      biometric = 'unavailable';
-    } else {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Confirm it is you to sign in',
-        cancelLabel: 'Cancel',
-        // No PIN fallback: a colleague who knows the PIN must not pass
-        disableDeviceFallback: true,
-      });
-      if (!result.success) {
-        return { cancelled: true, message: 'Fingerprint / Face ID did not match. Only the account owner can sign in.' };
-      }
-      biometric = 'passed';
-    }
-  }
 
   let selfie;
   if (required.selfie) {
@@ -68,5 +45,5 @@ export async function confirmPresence() {
     if (!selfie) return { cancelled: true, message: 'A sign-in photo is needed to sign in.' };
   }
 
-  return { fields: { biometric, selfie, selfieCapable: true } };
+  return { fields: { selfie, selfieCapable: true } };
 }

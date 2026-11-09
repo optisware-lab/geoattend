@@ -28,7 +28,7 @@ async function getRequiredLocation() {
   return location;
 }
 
-/** Fingerprint / Face ID + sign-in photo; null (after telling the person) if it stopped. */
+/** The sign-in photo; null (after telling the person) if it stopped. */
 async function getPresenceFields() {
   let presence;
   try {
@@ -176,7 +176,6 @@ async function checkInWithServerDecode(asset) {
   formData.append('latitude', String(location.latitude));
   formData.append('longitude', String(location.longitude));
   formData.append('deviceId', getDeviceId());
-  formData.append('biometric', presenceFields.biometric);
   formData.append('selfieCapable', 'true');
   if (presenceFields.selfie) formData.append('selfie', presenceFields.selfie);
 

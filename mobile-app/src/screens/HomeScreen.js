@@ -307,7 +307,7 @@ export default function HomeScreen() {
     }
 
     setLoading(true);
-    // Fingerprint / Face ID, then the sign-in photo: proves it is the owner
+    // The sign-in photo: proves it is the owner
     let presence;
     try {
       presence = await confirmPresence();
