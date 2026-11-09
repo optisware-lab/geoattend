@@ -10,6 +10,7 @@ router.get('/today-summary', reportController.getTodaySummary);
 router.get('/attendance', reportController.getAttendanceReport);
 router.get('/realtime', reportController.getRealTimeAttendance);
 router.get('/weekly-summary', reportController.getWeeklySummary);
+router.get('/weekly-breakdown', reportController.getWeeklyBreakdown);
 router.get('/fraud', reportController.getFraudReport);
 router.get('/geofence-events', reportController.getGeofenceEvents);
 router.get('/export/excel', reportController.exportExcel);

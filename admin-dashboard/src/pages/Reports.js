@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FiDownload, FiFileText, FiFilter, FiAlertTriangle, FiShare2 } from 'react-icons/fi';
-import { API_BASE_URL, getAttendanceReport, getDepartments, getFraudReport, getGeofenceEvents } from '../services/api';
+import { API_BASE_URL, getAttendanceReport, getDepartments, getFraudReport, getGeofenceEvents, getWeeklyBreakdown } from '../services/api';
 import { PageHeader, Badge } from '../components/ui';
+import WeekByWeek from '../components/WeekByWeek';
 import { formatDate, formatDateTime, formatDateRange, formatTime, formatDuration } from '../utils/format';
 
 const styles = {
@@ -107,6 +108,8 @@ export default function Reports() {
   const [records, setRecords] = useState([]);
   const [fraudEvents, setFraudEvents] = useState([]);
   const [geofenceEvents, setGeofenceEvents] = useState([]);
+  const [weekly, setWeekly] = useState(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [departments, setDepartments] = useState([]);
   const [filters, setFilters] = useState({ ...initialRange, department: '', staffId: '' });
   const [period, setPeriod] = useState(initialPeriod);
@@ -126,6 +129,12 @@ export default function Reports() {
       .then(r => setRecords(r.data.records || []))
       .catch(() => toast.error('Failed to load report'))
       .finally(() => setLoading(false));
+
+    setWeeklyLoading(true);
+    getWeeklyBreakdown(params)
+      .then(r => setWeekly(r.data))
+      .catch(() => setWeekly(null))
+      .finally(() => setWeeklyLoading(false));
 
     getFraudReport(params)
       .then(r => setFraudEvents(r.data.events || []))
@@ -269,6 +278,9 @@ export default function Reports() {
         </div>
       </div>
 
+      <WeekByWeek data={weekly} loading={weeklyLoading} />
+
+      <h2 style={{ fontSize: 16, margin: '8px 0 10px', color: '#2c3e50' }}>Sign-in records</h2>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {STATUS_VIEWS.map(v => (
           <button key={v.key || 'all'} type="button" className={`ga-chip${statusView === v.key ? ' is-active' : ''}`} onClick={() => setStatusView(v.key)}>
