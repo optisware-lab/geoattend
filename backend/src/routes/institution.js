@@ -8,7 +8,6 @@ router.use(authenticate);
 router.get('/subscription', institutionController.getSubscriptionStatus);
 router.get('/subscription/plans', requireAdmin, institutionController.getSubscriptionPlans);
 router.post('/subscription/activate', requireAdmin, institutionController.activateSubscription);
-router.post('/subscription/extend-trial', requireAdmin, institutionController.extendTrial);
 
 router.use(requireActiveSubscription);
 
@@ -22,6 +21,7 @@ router.put('/rules', requireAdmin, institutionController.updateAttendanceRules);
 router.get('/', requireSuperAdmin, institutionController.getAllInstitutions);
 router.post('/', requireSuperAdmin, institutionController.createInstitution);
 router.delete('/:id', requireSuperAdmin, institutionController.deleteInstitution);
+router.post('/:id/extend-trial', requireSuperAdmin, institutionController.extendTrial);
 router.post('/:id/repair-code',requireSuperAdmin, institutionController.repairInstitutionCode);
 router.get('/:id/admin-credentials', requireSuperAdmin, institutionController.getAdminCredentials);
 router.post('/:id/admin-credentials', requireSuperAdmin, institutionController.createOrResetAdminCredentials);

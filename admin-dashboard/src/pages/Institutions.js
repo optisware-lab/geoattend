@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
-import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield, FiHome, FiCheckCircle, FiClock, FiAlertTriangle, FiPlusCircle } from 'react-icons/fi';
+import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield, FiHome, FiCheckCircle, FiClock, FiAlertTriangle, FiPlusCircle, FiCalendar } from 'react-icons/fi';
 import { PageHeader, StatCard } from '../components/ui';
 import { formatDate, timeAgo } from '../utils/format';
-import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution } from '../services/api';
+import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution, extendInstitutionTrial } from '../services/api';
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
@@ -57,6 +57,19 @@ const styles = {
     padding: '8px 20px', borderRadius: '6px', fontSize: '14px',
     background: '#f0f0f0', color: '#333', border: 'none', cursor: 'pointer',
   },
+  extendBtn: {
+    marginTop: '6px', padding: '3px 8px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+    border: '1px solid #d0d0d0', background: '#fff', color: '#1a5276', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: '4px',
+  },
+  presetBtn: (active) => ({
+    padding: '6px 12px', borderRadius: '16px', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    border: `1px solid ${active ? '#1a5276' : '#d0d0d0'}`, background: active ? '#1a5276' : '#fff', color: active ? '#fff' : '#2c3e50',
+  }),
+  primaryBtn: {
+    padding: '8px 20px', borderRadius: '6px', fontSize: '14px',
+    background: '#1a5276', color: '#fff', border: 'none', cursor: 'pointer',
+  },
   deleteBtn: {
     padding: '8px 20px', borderRadius: '6px', fontSize: '14px',
     background: '#e74c3c', color: '#fff', border: 'none', cursor: 'pointer',
@@ -80,6 +93,18 @@ function remainingFor(inst) {
   if (inst.subscription_status === 'trialing') return daysRemaining(inst.subscription_trial_end);
   if (inst.subscription_status === 'active') return daysRemaining(inst.subscription_period_end);
   return null;
+}
+
+const EXTEND_PRESETS = [7, 14, 30, 60];
+
+// When the trial (or paid plan) ends now; extra days count from then or from today, whichever is later
+function currentEnd(inst) {
+  return inst.subscription_status === 'active' ? inst.subscription_period_end : inst.subscription_trial_end;
+}
+
+function extendedEnd(inst, days) {
+  const end = currentEnd(inst) ? new Date(currentEnd(inst)).getTime() : 0;
+  return new Date(Math.max(end, Date.now()) + days * 24 * 60 * 60 * 1000);
 }
 
 const STATUS_FILTERS = [
@@ -119,6 +144,9 @@ export default function Institutions() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [extendTarget, setExtendTarget] = useState(null);
+  const [extendDays, setExtendDays] = useState('7');
+  const [extending, setExtending] = useState(false);
 
   useEffect(() => {
     getAllInstitutions()
@@ -230,6 +258,36 @@ export default function Institutions() {
       toast.error(err.response?.data?.error || 'Failed to delete institution');
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const openExtend = (inst) => {
+    setExtendTarget(inst);
+    setExtendDays('7');
+  };
+
+  const daysValue = Number(extendDays);
+  const daysValid = Number.isInteger(daysValue) && daysValue >= 1 && daysValue <= 365;
+
+  const handleExtend = async () => {
+    if (!extendTarget || !daysValid) return;
+    setExtending(true);
+    try {
+      const { data } = await extendInstitutionTrial(extendTarget.id, daysValue);
+      const sub = data.subscription;
+      setInstitutions(prev => prev.map(i => (i.id === extendTarget.id ? {
+        ...i,
+        subscription_status: sub.status,
+        subscription_plan: sub.planName,
+        subscription_trial_end: sub.trialEnd,
+        subscription_period_end: sub.currentPeriodEnd,
+      } : i)));
+      toast.success(data.message || 'Extended');
+      setExtendTarget(null);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to extend');
+    } finally {
+      setExtending(false);
     }
   };
 
@@ -415,6 +473,16 @@ export default function Institutions() {
                       {remaining} day(s) left
                     </div>
                   )}
+                  {currentEnd(inst) && (
+                    <div style={{ color: '#95a5a6', fontSize: '11px', marginTop: '2px' }}>
+                      Ends {formatDate(currentEnd(inst))}
+                    </div>
+                  )}
+                  <div>
+                    <button style={styles.extendBtn} onClick={() => openExtend(inst)} title="Add days to this institution's trial or plan">
+                      <FiCalendar size={11} /> Extend
+                    </button>
+                  </div>
                 </td>
                 <td style={{ ...styles.td, whiteSpace: 'nowrap' }}>
                   {formatDate(inst.created_at)}
@@ -443,6 +511,59 @@ export default function Institutions() {
         </tbody>
       </table>
       </div>
+
+      {extendTarget && (
+        <div style={styles.modalOverlay} onClick={() => !extending && setExtendTarget(null)}>
+          <div style={styles.modal} onClick={e => e.stopPropagation()} role="dialog" aria-label="Extend trial">
+            <h3 style={{ margin: '0 0 12px', fontSize: '18px', color: '#2c3e50' }}>
+              {extendTarget.subscription_status === 'active' ? 'Extend plan' : 'Extend trial'}
+            </h3>
+            <p style={{ margin: '0 0 6px', color: '#555', fontSize: '14px' }}>
+              <strong>{extendTarget.name}</strong>
+              {extendTarget.institution_code && <> (<span style={styles.code}>{extendTarget.institution_code}</span>)</>}
+            </p>
+            <p style={{ margin: '0 0 16px', color: '#7f8c8d', fontSize: '13px' }}>
+              {currentEnd(extendTarget)
+                ? <>Currently ends {formatDate(currentEnd(extendTarget))}{remainingFor(extendTarget) !== null && <> ({remainingFor(extendTarget)} day(s) left)</>}.</>
+                : <>No end date set yet.</>}
+              {!['trialing', 'active'].includes(extendTarget.subscription_status) && <> Its access has ended; this restarts it as a trial.</>}
+            </p>
+            <label style={{ fontSize: '13px', color: '#555' }}>Days to add</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', margin: '8px 0 10px' }}>
+              {EXTEND_PRESETS.map(d => (
+                <button key={d} type="button" style={styles.presetBtn(String(d) === extendDays)} onClick={() => setExtendDays(String(d))}>
+                  +{d} days
+                </button>
+              ))}
+            </div>
+            <input
+              style={{ ...styles.confirmInput, fontFamily: 'inherit', margin: '0 0 8px' }}
+              type="number"
+              min={1}
+              max={365}
+              step={1}
+              value={extendDays}
+              onChange={e => setExtendDays(e.target.value)}
+              aria-label="Days to add"
+            />
+            <p style={{ margin: '0 0 20px', fontSize: '13px', color: daysValid ? '#27ae60' : '#e74c3c' }}>
+              {daysValid
+                ? <>New end date: <strong>{formatDate(extendedEnd(extendTarget, daysValue))}</strong></>
+                : 'Enter a whole number from 1 to 365'}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setExtendTarget(null)} style={styles.cancelBtn} disabled={extending}>Cancel</button>
+              <button
+                onClick={handleExtend}
+                style={{ ...styles.primaryBtn, opacity: daysValid && !extending ? 1 : 0.5 }}
+                disabled={!daysValid || extending}
+              >
+                {extending ? 'Saving...' : (daysValid ? 'Add ' + daysValue + ' day(s)' : 'Add days')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteTarget && (
         <div style={styles.modalOverlay}>

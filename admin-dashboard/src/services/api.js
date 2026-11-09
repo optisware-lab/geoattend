@@ -77,6 +77,7 @@ export const updateAttendanceRules = (data, params) => api.put('/institutions/ru
 export const createInstitution = (data) => api.post('/institutions', data, { timeout: 90000 });
 export const getAllInstitutions = () => api.get('/institutions');
 export const deleteInstitution = (id) => api.delete(`/institutions/${id}`);
+export const extendInstitutionTrial = (id, days) => api.post(`/institutions/${id}/extend-trial`, { days });
 export const repairInstitutionCode =(id) => api.post(`/institutions/${id}/repair-code`);
 export const getInstitutionAdminCredentials = (id) => api.get(`/institutions/${id}/admin-credentials`);
 export const createInstitutionAdminCredentials = (id) => api.post(`/institutions/${id}/admin-credentials`);

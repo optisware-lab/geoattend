@@ -6,7 +6,6 @@ const { generateInstitutionQR } = require('../utils/qrcode');
 const { logAudit } = require('../middleware/audit');
 const { encrypt, decrypt, decryptSafe, isEncrypted } = require('../utils/credentialsCrypto');
 const {
-  DEFAULT_TRIAL_DAYS,
   ensureTrialSubscription,
   getCurrentSubscription,
   buildSubscriptionSnapshot,
@@ -468,38 +467,66 @@ exports.activateSubscription = async (req, res) => {
   }
 };
 
+// Super admin: add days to an institution's trial (or to its paid plan if it is paying).
+// Days are added on top of whatever time is left, so an expired trial restarts from today.
 exports.extendTrial = async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_PATTERN.test(String(id || ''))) {
+    return res.status(400).json({ error: 'Invalid institution id' });
+  }
+  const days = Number(req.body.days);
+  if (!Number.isInteger(days) || days < 1 || days > 365) {
+    return res.status(400).json({ error: 'Days must be a whole number between 1 and 365' });
+  }
+
   try {
-    const extraDays = parseInt(req.body.extraDays || String(DEFAULT_TRIAL_DAYS), 10);
-    if (!Number.isFinite(extraDays) || extraDays < 1 || extraDays > 90) {
-      return res.status(400).json({ error: 'extraDays must be between 1 and 90' });
+    const db = req.tenantDb;
+    const inst = await db.query('SELECT id, name, institution_code FROM institutions WHERE id = $1', [id]);
+    if (inst.rows.length === 0) {
+      return res.status(404).json({ error: 'Institution not found' });
     }
 
-    await ensureTrialSubscription(req.user.institution_id);
-    const updated = await req.tenantDb.query(
-      `WITH latest AS (
-         SELECT id
-         FROM subscriptions
-         WHERE institution_id = $2
-         ORDER BY created_at DESC
-         LIMIT 1
-       )
-       UPDATE subscriptions s
-       SET status = 'trialing',
-           trial_end = GREATEST(COALESCE(s.trial_end, NOW()), NOW()) + ($1 || ' days')::INTERVAL,
-           updated_at = NOW()
-       FROM latest
-       WHERE s.id = latest.id
-       RETURNING s.id, s.plan_name, s.status, s.trial_start, s.trial_end, s.current_period_end, s.payment_reference`,
-      [String(extraDays), req.user.institution_id]
+    await ensureTrialSubscription(id, db);
+    const before = await getCurrentSubscription(id, db);
+    const isPaying = before.status === 'active';
+
+    const updated = await db.query(
+      isPaying
+        ? `UPDATE subscriptions
+           SET current_period_end = GREATEST(COALESCE(current_period_end, NOW()), NOW()) + ($1 || ' days')::INTERVAL,
+               updated_at = NOW()
+           WHERE id = $2
+           RETURNING id, plan_name, status, trial_start, trial_end, current_period_end, payment_reference`
+        : `UPDATE subscriptions
+           SET status = 'trialing',
+               trial_end = GREATEST(COALESCE(trial_end, NOW()), NOW()) + ($1 || ' days')::INTERVAL,
+               updated_at = NOW()
+           WHERE id = $2
+           RETURNING id, plan_name, status, trial_start, trial_end, current_period_end, payment_reference`,
+      [String(days), before.id]
     );
-    if (updated.rows.length === 0) {
-      return res.status(404).json({ error: 'Subscription not found' });
-    }
+    const sub = updated.rows[0];
+
+    logAudit({
+      institutionId: req.user.institution_id,
+      action: isPaying ? 'extend_subscription' : 'extend_trial',
+      entityType: 'institution',
+      entityId: id,
+      details: {
+        name: inst.rows[0].name,
+        code: inst.rows[0].institution_code,
+        days,
+        previousStatus: before.status,
+        previousEnd: isPaying ? before.current_period_end : before.trial_end,
+        newEnd: isPaying ? sub.current_period_end : sub.trial_end,
+      },
+      performedBy: req.user.id,
+      ipAddress: req.ip,
+    });
 
     res.json({
-      message: 'Trial extended',
-      subscription: buildSubscriptionSnapshot(updated.rows[0]),
+      message: `${inst.rows[0].name}: ${isPaying ? 'plan' : 'trial'} extended by ${days} day(s)`,
+      subscription: buildSubscriptionSnapshot(sub),
     });
   } catch (err) {
     console.error('Extend trial error:', err);
