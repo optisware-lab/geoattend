@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Updates from 'expo-updates';
 import { getCurrentLocation, calculateDistance, watchLocation } from '../services/location';
 import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent, getAttendanceRules, RULES_KEY } from '../services/api';
 import { formatDateLong, formatTime, formatDuration } from '../services/format';
@@ -30,10 +31,30 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
+// This app version cannot exist before this moment, so a phone clock showing
+// an earlier time is wrong. A wrong clock makes every secure connection fail.
+const EARLIEST_REAL_TIME = new Date('2026-11-09T00:00:00Z').getTime();
+function phoneClockIsWrong() {
+  const built = Updates.createdAt instanceof Date ? Updates.createdAt.getTime() : 0;
+  return Date.now() < Math.max(EARLIEST_REAL_TIME, built) - 24 * 60 * 60 * 1000;
+}
+
+/** True when the server could not be reached or failed, as opposed to refusing. */
+function isUnreachable(err) {
+  return !err?.response || err.response.status >= 500;
+}
+
 /** Turns a failed status request into words staff can act on. */
 function describeStatusError(err) {
   const status = err?.response?.status;
   const code = err?.response?.data?.code;
+  if (!err?.response && phoneClockIsWrong()) {
+    return {
+      title: "This phone's date is wrong",
+      detail: 'Open Settings > Date & time and turn on "Set automatically", then reopen GeoAttend.',
+      unreachable: true,
+    };
+  }
   if (status === 402 || code === 'SUBSCRIPTION_REQUIRED') {
     return {
       title: 'Sign-in is paused for your school',
@@ -44,8 +65,16 @@ function describeStatusError(err) {
   if (status === 401) {
     return { title: 'Please log in again', detail: 'Your login could not be confirmed.' };
   }
-  if (!err?.response || status >= 500) {
-    return { title: 'Server is busy', detail: 'Trying again automatically. Tap to retry now.' };
+  if (!err?.response) {
+    const timedOut = err?.code === 'ECONNABORTED' || /timeout/i.test(err?.message || '');
+    return {
+      title: "Can't reach GeoAttend from this phone",
+      detail: `${timedOut ? 'The connection is too slow.' : 'The connection is blocked.'} Check that mobile data is allowed for GeoAttend (Settings > Apps > GeoAttend > Mobile data), Data Saver is off, and no VPN is on.`,
+      unreachable: true,
+    };
+  }
+  if (status >= 500) {
+    return { title: 'GeoAttend server problem', detail: `Error ${status}. Trying again automatically.`, unreachable: true };
   }
   return {
     title: "Couldn't load your status",
@@ -66,6 +95,9 @@ export default function HomeScreen() {
   const [statusError, setStatusError] = useState(null);
   const retryTimer = useRef(null);
   const retryCount = useRef(0);
+  // The phone says it's online but the server can't be reached from it. Work
+  // as if offline then: sign-ins are saved and sent once it gets through.
+  const serverUnreachable = useRef(false);
   const [record, setRecord] = useState(null);
   const [location, setLocation] = useState(null);
   const [distance, setDistance] = useState(null);
@@ -122,7 +154,8 @@ export default function HomeScreen() {
     }
 
     try {
-      const { data } = await getTodayStatus();
+      const { data } = await getTodayStatus({ timeout: 20000 });
+      serverUnreachable.current = false;
       saveTodayStatus(data.status, data.record);
       saveCheckInRequirements(data.requirements);
       statusDay.current = new Date().toDateString();
@@ -132,14 +165,21 @@ export default function HomeScreen() {
       retryCount.current = 0;
       clearTimeout(retryTimer.current);
     } catch (err) {
-      if (known) return; // keep showing what we know
+      if (isUnreachable(err)) serverUnreachable.current = true;
       if (!(await isOnline())) {
         // Offline with nothing saved: allow a sign-in, which is queued and
         // checked by the server when it syncs.
-        setTodayStatus((cur) => cur || 'not_checked_in');
+        if (!known) setTodayStatus((cur) => cur || 'not_checked_in');
         return;
       }
-      setStatusError(describeStatusError(err));
+      const problem = describeStatusError(err);
+      setStatusError(problem);
+      // Never leave staff stuck: if the server can't be reached, show the
+      // button anyway and save the sign-in like when offline.
+      if (problem.unreachable && !known) {
+        statusDay.current = new Date().toDateString();
+        setTodayStatus((cur) => cur || 'not_checked_in');
+      }
       // Try again by itself: 5 s, 15 s, 30 s, then every minute
       clearTimeout(retryTimer.current);
       const delays = [5000, 15000, 30000];
@@ -337,7 +377,7 @@ export default function HomeScreen() {
     };
 
     try {
-      if (!(await isOnline())) {
+      if (!(await isOnline()) || serverUnreachable.current) {
         await queueCheckIn();
         return;
       }
@@ -383,7 +423,7 @@ export default function HomeScreen() {
         deviceId: Device.osBuildId || Device.modelId || Device.modelName || 'unknown',
       };
 
-      if (!(await isOnline())) {
+      if (!(await isOnline()) || serverUnreachable.current) {
         await queueCheckOut(checkOutData);
         return;
       }
@@ -510,6 +550,22 @@ export default function HomeScreen() {
               {!online ? '⚠ You are offline. Sign-ins are saved and sent later.' : `⏳ ${pendingSync} sign-in(s) waiting to sync`}
             </Text>
           </View>
+        )}
+
+        {/* Server can't be reached from this phone: say why, and what to check */}
+        {statusError && todayStatus && (
+          <TouchableOpacity
+            onPress={retryStatus}
+            disabled={statusError.retrying}
+            accessibilityRole="button"
+            style={[styles.card, { borderLeftColor: '#e67e22', backgroundColor: theme.dark ? '#3a2a1a' : '#fdf2e9' }]}
+          >
+            <Text style={[styles.cardValue, { color: '#d35400', fontSize: 15 }]}>⚠ {statusError.title}</Text>
+            <Text style={[styles.cardDetail, { color: theme.textSecondary }]}>{statusError.detail}</Text>
+            <Text style={[styles.cardDetail, { color: theme.textMuted }]}>
+              {statusError.retrying ? 'Trying again...' : 'Sign-ins are saved on this phone and sent when it connects. Tap to try again now.'}
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* Main action first: no scrolling to sign in or out */}
