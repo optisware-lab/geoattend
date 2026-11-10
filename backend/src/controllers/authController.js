@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const { signSessionToken } = require('../utils/authToken');
+const { sendServerError } = require('../utils/serverError');
 const pool = require('../config/database');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
@@ -675,8 +676,7 @@ exports.refreshToken = async (req, res) => {
     const token = signSessionToken(req.user);
     res.json({ token });
   } catch (err) {
-    console.error('Refresh token error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'refresh', err, req);
   }
 };
 
