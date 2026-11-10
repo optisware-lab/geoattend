@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 const { REFRESH_GRACE_MS } = require('../utils/authToken');
+const { sendServerError } = require('../utils/serverError');
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Verifies the JWT, loads the user from the database and binds the request to
@@ -38,7 +41,15 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
     return res.status(401).json({ error: 'Invalid token' });
   }
 
+  // A token whose ids aren't real ids can't belong to an account: ask for a
+  // fresh login instead of letting the database reject it with a 500.
+  if (!UUID_RE.test(String(decoded.userId || ''))
+    || (decoded.institutionId && !UUID_RE.test(String(decoded.institutionId)))) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+
   // 2) Database stage — bind connection, load user, re-apply context from the row
+  let stage = 'auth-connect';
   let client = null;
   let released = false;
   const releaseClient = () => {
@@ -53,6 +64,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
 
     res.on('finish', releaseClient);
     res.on('close', releaseClient);
+    stage = 'auth-context';
 
     // Seed context from the signed token so the user lookup itself is visible
     // under RLS. Missing/legacy institution ids fall back to bypass; the true
@@ -62,6 +74,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
       bypass: decoded.role === 'super_admin' || !decoded.institutionId,
     });
 
+    stage = 'auth-user';
     const result = await client.query(
       'SELECT id, institution_id, staff_id, first_name, last_name, email, role, member_type, is_active FROM staff WHERE id = $1',
       [decoded.userId]
@@ -78,6 +91,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
 
     // Re-apply the context from the authoritative DB row (role could have been
     // demoted/promoted since the token was signed).
+    stage = 'auth-tenant';
     await pool.applyTenantContext(client, {
       institutionId: result.rows[0].institution_id,
       bypass: result.rows[0].role === 'super_admin',
@@ -90,8 +104,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
     if (client) {
       releaseClient();
     }
-    console.error('Authenticate error:', err.message);
-    return res.status(500).json({ error: 'Server error' });
+    return sendServerError(res, stage, err, { user: { id: decoded.userId } });
   }
 };
 

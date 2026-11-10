@@ -39,6 +39,13 @@ function phoneClockIsWrong() {
   return Date.now() < Math.max(EARLIEST_REAL_TIME, built) - 24 * 60 * 60 * 1000;
 }
 
+/** The server's message plus its error code, e.g. "Server error (code auth-user-22P02)". */
+function withRef(err) {
+  const msg = err?.response?.data?.error || 'Please try again';
+  const ref = err?.response?.data?.ref;
+  return ref ? `${msg} (code ${ref})` : msg;
+}
+
 /** True when the server could not be reached or failed, as opposed to refusing. */
 function isUnreachable(err) {
   return !err?.response || err.response.status >= 500;
@@ -74,7 +81,8 @@ function describeStatusError(err) {
     };
   }
   if (status >= 500) {
-    return { title: 'GeoAttend server problem', detail: `Error ${status}. Trying again automatically.`, unreachable: true };
+    const ref = err?.response?.data?.ref;
+    return { title: 'GeoAttend server problem', detail: `Error ${status}${ref ? ` (code ${ref})` : ''}. Trying again automatically.`, unreachable: true };
   }
   return {
     title: "Couldn't load your status",
@@ -396,7 +404,7 @@ export default function HomeScreen() {
       if (!err.response) {
         await queueCheckIn().catch(() => toast.error('Could not save the sign-in on this phone. Please try again.', 'Sign-In Failed'));
       } else {
-        toast.error(err.response?.data?.error || 'Please try again', 'Sign-In Failed');
+        toast.error(withRef(err), 'Sign-In Failed');
         // e.g. already signed in on another device: show the right button
         refreshStatus();
       }
@@ -441,7 +449,7 @@ export default function HomeScreen() {
       if (!err.response && checkOutData) {
         await queueCheckOut(checkOutData);
       } else {
-        toast.error(err.response?.data?.error || 'Please try again', 'Sign-Out Failed');
+        toast.error(withRef(err), 'Sign-Out Failed');
         refreshStatus();
       }
     } finally {

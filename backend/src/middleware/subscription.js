@@ -3,6 +3,7 @@ const {
   getCurrentSubscription,
   buildSubscriptionSnapshot,
 } = require('../services/subscriptionService');
+const { sendServerError } = require('../utils/serverError');
 
 async function requireActiveSubscription(req, res, next) {
   try {
@@ -53,8 +54,7 @@ async function requireActiveSubscription(req, res, next) {
       subscription: buildSubscriptionSnapshot({ ...subscription, status: 'past_due' }),
     });
   } catch (err) {
-    console.error('Subscription middleware error:', err);
-    return res.status(500).json({ error: 'Server error' });
+    return sendServerError(res, 'subscription', err, req);
   }
 }
 

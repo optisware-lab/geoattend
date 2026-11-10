@@ -1,6 +1,7 @@
 const { isWithinGeofence } = require('../utils/geofence');
 const { decodeQrFromBuffer } = require('../utils/qrDecoder');
 const { normalizeSelfie, SELFIE_RETENTION_DAYS } = require('../utils/selfie');
+const { sendServerError } = require('../utils/serverError');
 
 async function logFraudEvent(db, { institutionId, staffUuid, eventType, details, ipAddress }) {
   try {
@@ -325,8 +326,7 @@ async function runCheckIn(req, res, body) {
       },
     });
   } catch (err) {
-    console.error('Sign-in error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'signin', err, req);
   }
 }
 
@@ -538,8 +538,7 @@ exports.checkOut = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Sign-out error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'signout', err, req);
   }
 };
 
@@ -587,8 +586,7 @@ exports.getMyAttendance = async (req, res) => {
       limit: parseInt(limit, 10),
     });
   } catch (err) {
-    console.error('Get attendance error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'history', err, req);
   }
 };
 
@@ -612,8 +610,7 @@ exports.getTodayStatus = async (req, res) => {
 
     res.json({ status, record, requirements });
   } catch (err) {
-    console.error('Get today status error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'today', err, req);
   }
 };
 
@@ -697,7 +694,6 @@ exports.getWeeklyStats = async (req, res) => {
       week: weekResult.rows,
     });
   } catch (err) {
-    console.error('Get weekly stats error:', err);
-    res.status(500).json({ error: 'Server error' });
+    sendServerError(res, 'stats', err, req);
   }
 };
