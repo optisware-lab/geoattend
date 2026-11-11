@@ -8,6 +8,10 @@ import {
 import { formatDate, formatDateLong, formatDateRange, formatDuration, relativeDay, toInputDate, daysInclusive } from '../utils/format';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 import SelfieCapture from './SelfieCapture';
+import {
+  addToQueue, syncQueue, queueLength, pendingStatus, pendingRecord, isUnreachable, browserOnline,
+  saveTodayStatus, readTodayStatus, saveRules, readRules, saveStats, readStats, clearCachedStatus,
+} from './offlineQueue';
 
 // Same palette as the mobile app (mobile-app/src/services/theme.js)
 const C = {
@@ -95,6 +99,17 @@ function getLocation() {
   });
 }
 
+/** Today's record from the server/last save, updated with times saved offline. */
+function withQueued(base, queued) {
+  if (!queued) return base || null;
+  return {
+    ...(base || {}),
+    check_in_time: base?.check_in_time || queued.check_in_time,
+    check_out_time: queued.check_out_time || base?.check_out_time || null,
+    is_late: base?.is_late ?? null,
+  };
+}
+
 const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone;
 
@@ -116,7 +131,7 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
-function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message }) {
+function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message, offline, pending, onSyncNow }) {
   const [confirmOut, setConfirmOut] = useState(false);
   const radius = institution?.geofenceRadius || 200;
   const distance = location && institution?.latitude != null
@@ -159,6 +174,18 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
       </div>
 
       {message && <div style={st.banner(message.type)}>{message.text}</div>}
+
+      {(offline || pending > 0) && (
+        <button type="button" onClick={onSyncNow} style={{ ...st.banner('info'), display: 'block', width: '100%', textAlign: 'left', border: 'none', cursor: 'pointer', fontFamily: FONT, background: '#fef5e7', color: '#9a6400' }}>
+          <strong>{offline ? 'No internet connection' : 'Waiting to send'}</strong>
+          <span style={{ display: 'block', marginTop: 2 }}>
+            {pending > 0
+              ? `${pending} sign-in/out saved on this phone. It is sent automatically when you're back online.`
+              : 'You can still sign in and out. It is saved on this phone and sent when you are back online.'}
+          </span>
+          {pending > 0 && <span style={{ display: 'block', marginTop: 4, fontSize: 12, textDecoration: 'underline' }}>Tap to send now</span>}
+        </button>
+      )}
 
       <div style={{ marginBottom: 16 }}>
         {!status ? (
@@ -653,12 +680,17 @@ const TABS = [
 
 export default function StaffHome({ onSignOut }) {
   const { user, institution } = session.get();
+  const userId = user?.id || user?.staffId || null;
   const [tab, setTab] = useState('home');
-  const [status, setStatus] = useState(null);
+  // Start from what this phone already knows, so the right button shows at
+  // once, even with no internet: saved sign-ins first, then today's last status
+  const [status, setStatus] = useState(() => pendingStatus(userId) || readTodayStatus()?.status || null);
   const [statusError, setStatusError] = useState(false);
-  const statusDay = useRef(null);
-  const [record, setRecord] = useState(null);
-  const [stats, setStats] = useState(null);
+  const statusDay = useRef(new Date().toDateString());
+  const [record, setRecord] = useState(() => withQueued(readTodayStatus()?.record, pendingRecord(userId)));
+  const [stats, setStats] = useState(() => readStats());
+  const [offline, setOffline] = useState(() => !browserOnline());
+  const [pending, setPending] = useState(() => queueLength(userId));
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
   const [busy, setBusy] = useState('');
@@ -666,7 +698,7 @@ export default function StaffHome({ onSignOut }) {
   // What a sign-in must include (from today's status); photo on unless the admin turned it off
   const [requirements, setRequirements] = useState({ selfie: true });
   const [selfieRequest, setSelfieRequest] = useState(null);
-  const [rules, setRules] = useState(null);
+  const [rules, setRules] = useState(() => readRules());
   const [now, setNow] = useState(() => new Date());
 
   // Keeps the "at work for" clock and greeting current
@@ -676,7 +708,7 @@ export default function StaffHome({ onSignOut }) {
   }, []);
 
   useEffect(() => {
-    getRules().then(({ data }) => { if (data && typeof data === 'object') setRules(data); }).catch(() => {});
+    getRules().then(({ data }) => { if (data && typeof data === 'object') { setRules(data); saveRules(data); } }).catch(() => {});
   }, []);
 
   const handleAuthError = useCallback((err) => {
@@ -691,19 +723,99 @@ export default function StaffHome({ onSignOut }) {
   // quiet: don't replace a message already on screen (e.g. a failed sign-in)
   const loadToday = useCallback(async ({ quiet = false } = {}) => {
     setStatusError(false);
+    // Show what this phone knows straight away
+    const queued = pendingStatus(userId);
+    const saved = readTodayStatus();
+    const known = queued || saved?.status || null;
+    if (known) {
+      statusDay.current = new Date().toDateString();
+      setStatus((cur) => cur || known);
+      setRecord((cur) => cur || withQueued(saved?.record, pendingRecord(userId)));
+    }
     try {
       const { data } = await getTodayStatus();
       if (data.requirements) setRequirements(data.requirements);
+      saveTodayStatus(data.status, data.record);
       statusDay.current = new Date().toDateString();
-      setStatus(data.status);
-      setRecord(data.record || null);
+      setOffline(false);
+      // Saved sign-ins not sent yet are newer than what the server knows
+      const stillQueued = pendingStatus(userId);
+      setStatus(stillQueued || data.status);
+      setRecord(withQueued(data.record, stillQueued ? pendingRecord(userId) : null));
     } catch (err) {
       if (handleAuthError(err)) return;
-      setStatusError(true);
+      if (isUnreachable(err)) {
+        // No internet or no answer: work offline. With nothing saved, allow a
+        // sign-in; it is saved here and checked by the server when it's sent.
+        setOffline(true);
+        if (!known) {
+          statusDay.current = new Date().toDateString();
+          setStatus((cur) => cur || 'not_checked_in');
+        }
+        return;
+      }
+      setStatusError(!known);
       if (!quiet) setMessage({ type: 'error', text: errorMessage(err, 'Could not load today\'s status.') });
     }
-    getWeeklyStats().then(({ data }) => setStats(data.month)).catch(() => {});
-  }, [handleAuthError]);
+    getWeeklyStats().then(({ data }) => { setStats(data.month); saveStats(data.month); }).catch(() => {});
+  }, [handleAuthError, userId]);
+
+  // ---- Saved (offline) sign-ins: send them when there is a connection ----
+  const sendSaved = useCallback((action, data) => (action === 'check-out' ? checkOut(data) : checkIn(data)), []);
+  const syncSaved = useCallback(async ({ announce = false } = {}) => {
+    if (queueLength(userId) === 0) { setPending(0); return; }
+    const result = await syncQueue(userId, sendSaved);
+    setPending(queueLength(userId));
+    if (result.synced > 0) {
+      setOffline(false);
+      setMessage({ type: 'success', text: `${result.synced} saved sign-in/out sent to the server.` });
+      loadToday({ quiet: true });
+    } else if (announce && result.left > 0) {
+      setMessage({ type: 'info', text: 'Still no connection. Your saved sign-in will be sent automatically.' });
+    }
+    if (result.rejected.length) {
+      setMessage({ type: 'error', text: `Not accepted by the server: ${result.rejected.map((r) => r.error).join(' ')}` });
+      loadToday({ quiet: true });
+    }
+  }, [userId, sendSaved, loadToday]);
+
+  useEffect(() => {
+    syncSaved();
+    const id = setInterval(() => syncSaved(), 60000);
+    const goOnline = () => { setOffline(false); syncSaved(); loadToday({ quiet: true }); };
+    const goOffline = () => setOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [syncSaved, loadToday]);
+
+  /** Saves a sign-in or sign-out on this phone to send later. */
+  const saveForLater = (action, payload) => {
+    try {
+      addToQueue(action, payload, userId);
+    } catch {
+      setMessage({ type: 'error', text: 'No internet, and this phone has no room left to save the sign-in. Please free some space or try again with internet.' });
+      return false;
+    }
+    setOffline(true);
+    setPending(queueLength(userId));
+    statusDay.current = new Date().toDateString();
+    setStatus(action === 'check-in' ? 'checked_in' : 'checked_out');
+    setRecord((cur) => withQueued(cur || readTodayStatus()?.record, pendingRecord(userId)));
+    setTab('home');
+    const what = action === 'check-in' ? 'sign-in' : 'sign-out';
+    setMessage({
+      type: 'info',
+      text: browserOnline() && queueLength(userId) > 1
+        ? `Your ${what} is saved with the time and place, and is being sent after your earlier saved ones.`
+        : `No connection to the server: your ${what} is saved on this phone with the time and place. It will be sent automatically when you are back online.`,
+    });
+    return true;
+  };
 
   const refreshLocation = useCallback(async () => {
     setLocationError('');
@@ -756,8 +868,10 @@ export default function StaffHome({ onSignOut }) {
 
   const afterCheckIn = (data, how) => {
     setMessage({ type: 'success', text: data.isLate ? `Signed in ${how}. You are marked as LATE.` : `Signed in ${how}. Have a good day!` });
+    setOffline(false);
     setStatus('checked_in');
     setRecord(data.record || null);
+    saveTodayStatus('checked_in', data.record);
     setTab('home'); // show the result on the main screen, whichever way they signed in
     getWeeklyStats().then(({ data: s }) => setStats(s.month)).catch(() => {});
   };
@@ -786,8 +900,16 @@ export default function StaffHome({ onSignOut }) {
       if (!loc) return;
       const presence = await presenceFields();
       if (!presence) { setMessage({ type: 'error', text: 'A sign-in photo is needed to sign in.' }); return; }
-      const { data } = await checkIn({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId(), ...presence });
-      afterCheckIn(data, 'with GPS');
+      const payload = { latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId(), ...presence };
+      // Earlier saved records go first, so the server sees them in order
+      if (!browserOnline() || queueLength(userId) > 0) { saveForLater('check-in', payload); syncSaved(); return; }
+      try {
+        const { data } = await checkIn(payload);
+        afterCheckIn(data, 'with GPS');
+      } catch (err) {
+        if (isUnreachable(err)) saveForLater('check-in', payload);
+        else throw err;
+      }
     } catch (err) {
       fail(err, 'Sign-in failed. Please try again.');
     } finally {
@@ -801,10 +923,20 @@ export default function StaffHome({ onSignOut }) {
     try {
       const loc = await refreshLocation();
       if (!loc) return;
-      const { data } = await checkOut({ latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId() });
+      const payload = { latitude: loc.latitude, longitude: loc.longitude, method: 'gps', deviceId: webDeviceId() };
+      if (!browserOnline() || queueLength(userId) > 0) { saveForLater('check-out', payload); syncSaved(); return; }
+      let data;
+      try {
+        ({ data } = await checkOut(payload));
+      } catch (err) {
+        if (isUnreachable(err)) { saveForLater('check-out', payload); return; }
+        throw err;
+      }
       setMessage({ type: 'success', text: 'Signed out. See you tomorrow!' });
+      setOffline(false);
       setStatus('checked_out');
       setRecord(data.record || record);
+      saveTodayStatus('checked_out', data.record || record);
     } catch (err) {
       fail(err, 'Sign-out failed. Please try again.');
     } finally {
@@ -825,11 +957,18 @@ export default function StaffHome({ onSignOut }) {
     }
     const presence = await presenceFields();
     if (!presence) { setMessage({ type: 'error', text: 'A sign-in photo is needed to sign in.' }); return; }
-    const { data } = await checkIn({
+    const payload = {
       latitude: loc.latitude, longitude: loc.longitude, method: 'qr_code',
       qrCode: parsed.qrCode, qrToken: parsed.qrToken, deviceId: webDeviceId(), ...presence,
-    });
-    afterCheckIn(data, 'with QR code');
+    };
+    if (!browserOnline() || queueLength(userId) > 0) { saveForLater('check-in', payload); syncSaved(); return; }
+    try {
+      const { data } = await checkIn(payload);
+      afterCheckIn(data, 'with QR code');
+    } catch (err) {
+      if (isUnreachable(err)) saveForLater('check-in', payload);
+      else throw err;
+    }
   };
 
   const onQrText = async (text) => {
@@ -854,6 +993,10 @@ export default function StaffHome({ onSignOut }) {
         return;
       }
       // The browser couldn't read it: let the server try before giving up
+      if (!browserOnline()) {
+        setMessage({ type: 'error', text: 'No internet, and this photo could not be read on the phone. Scan the QR code with the camera instead, or use Sign In with GPS.' });
+        return;
+      }
       const loc = await refreshLocation();
       if (!loc) return;
       const presence = await presenceFields();
@@ -882,6 +1025,7 @@ export default function StaffHome({ onSignOut }) {
   };
 
   const signOut = () => {
+    clearCachedStatus();
     session.clear();
     onSignOut();
   };
@@ -893,6 +1037,7 @@ export default function StaffHome({ onSignOut }) {
           user={user} institution={institution} status={status} statusError={statusError} onRetryStatus={() => loadToday()} record={record} stats={stats} rules={rules} now={now}
           location={location} locationError={locationError} onRefreshLocation={refreshLocation}
           onCheckIn={doGpsCheckIn} onCheckOut={doCheckOut} busy={busy} message={message}
+          offline={offline} pending={pending} onSyncNow={() => syncSaved({ announce: true })}
         />
       )}
       {tab === 'qr' && <QrTab active onQrText={onQrText} onPhoto={onPhoto} busy={busy} message={message} />}
