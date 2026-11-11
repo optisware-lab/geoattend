@@ -45,7 +45,7 @@ function pct(n) {
   return n == null ? '-' : `${n}%`;
 }
 
-function renderAttendancePdf(stream, { institutionName, department, staffIdFilter, summary, records, staffById }) {
+function renderAttendancePdf(stream, { institutionName, institutionLogo, department, staffIdFilter, summary, records, staffById }) {
   const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin, bufferPages: true });
   doc.pipe(stream);
 
@@ -220,7 +220,16 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
   const periodLabel = formatDateRange(summary.start, summary.end);
   const filtersLabel = [department && `Department: ${department}`, staffIdFilter && `Staff ID: ${staffIdFilter}`].filter(Boolean).join('   ·   ');
 
-  doc.font('Helvetica-Bold').fontSize(20).fillColor(C.navy).text(institutionName, LEFT, PAGE.margin, { width: WIDTH, align: 'center' });
+  // Institution logo above the name (skipped if the stored image can't be read)
+  let titleY = PAGE.margin;
+  if (institutionLogo) {
+    try {
+      const logoH = 56;
+      doc.image(institutionLogo, LEFT + (WIDTH - 140) / 2, titleY, { fit: [140, logoH], align: 'center', valign: 'center' });
+      titleY += logoH + 8;
+    } catch { /* unreadable image: report still prints */ }
+  }
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(C.navy).text(institutionName, LEFT, titleY, { width: WIDTH, align: 'center' });
   doc.font('Helvetica').fontSize(13).fillColor(C.text).text('Attendance Report', { width: WIDTH, align: 'center' });
   doc.moveDown(0.2);
   doc.font('Helvetica-Bold').fontSize(10).fillColor(C.text).text(`Period: ${periodLabel}`, { width: WIDTH, align: 'center' });

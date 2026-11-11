@@ -237,6 +237,9 @@ async function runAutoMigration(client) {
     `ALTER TABLE staff ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`,
     // Staff IDs start with the school's initials (RSS001); old IDs still log in
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS staff_id_prefix VARCHAR(10)`,
+    // Institution logo (PNG, max 512 px), shown in the apps and on reports
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo BYTEA`,
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMP`,
     "ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}'",
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 

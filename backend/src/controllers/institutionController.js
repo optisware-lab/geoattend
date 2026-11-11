@@ -62,7 +62,7 @@ exports.getInstitution = async (req, res) => {
       return res.status(404).json({ error: 'Institution not found' });
     }
 
-    res.json(result.rows[0]);
+    res.json(publicInstitution(result.rows[0]));
   } catch (err) {
     console.error('Get institution error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -140,7 +140,7 @@ exports.getAllInstitutions = async (req, res) => {
       ) sub ON true
       ORDER BY i.created_at DESC
     `);
-    res.json(result.rows);
+    res.json(result.rows.map(publicInstitution));
   } catch (err) {
     console.error('Get all institutions error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -149,9 +149,17 @@ exports.getAllInstitutions = async (req, res) => {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Institution row for JSON: the logo image is left out (fetch it from /institutions/:id/logo). */
+function publicInstitution(row) {
+  if (!row) return row;
+  const { logo, ...rest } = row;
+  return { ...rest, has_logo: Boolean(logo), logo_version: row.logo_updated_at ? new Date(row.logo_updated_at).getTime() : null };
+}
+
 // Institution + its stored admin credentials, as returned by createInstitution
 async function getCreatedInstitution(id, db) {
   const inst = await db.query('SELECT * FROM institutions WHERE id = $1', [id]);
+  if (inst.rows[0]) inst.rows[0] = publicInstitution(inst.rows[0]);
   if (inst.rows.length === 0) return null;
   const creds = await db.query(
     'SELECT admin_staff_id, admin_password FROM institution_admin_credentials WHERE institution_id = $1',
@@ -832,5 +840,63 @@ exports.updateStaffIdSettings = async (req, res) => {
     await db.query('ROLLBACK').catch(() => {});
     console.error('Update staff ID settings error:', err);
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// ---- Institution logo ----
+const { normalizeLogo } = require('../utils/logo');
+
+/** Admin: upload a new logo. body: { image: <data URL or base64> } */
+exports.uploadLogo = async (req, res) => {
+  try {
+    const png = await normalizeLogo(req.body?.image);
+    const r = await req.tenantDb.query(
+      'UPDATE institutions SET logo = $2, logo_updated_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING logo_updated_at',
+      [req.user.institution_id, png]
+    );
+    res.json({ message: 'Logo updated', hasLogo: true, logoVersion: new Date(r.rows[0].logo_updated_at).getTime() });
+  } catch (err) {
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    console.error('Upload logo error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/** Admin: remove the logo. */
+exports.deleteLogo = async (req, res) => {
+  try {
+    await req.tenantDb.query(
+      'UPDATE institutions SET logo = NULL, logo_updated_at = NOW(), updated_at = NOW() WHERE id = $1',
+      [req.user.institution_id]
+    );
+    res.json({ message: 'Logo removed', hasLogo: false });
+  } catch (err) {
+    console.error('Delete logo error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/**
+ * Public: the logo image, so <img> tags, the phone app and printouts can show
+ * it without a login. Logos aren't secret; the institution id is a UUID.
+ * Browsers re-check it each time (cheap 304), so a new logo shows at once.
+ */
+exports.getLogo = async (req, res) => {
+  const { id } = req.params;
+  if (!UUID_PATTERN.test(String(id))) return res.status(404).end();
+  try {
+    const row = await pool.withSystemContext(async (client) => (
+      await client.query('SELECT logo, logo_updated_at FROM institutions WHERE id = $1', [id])
+    ).rows[0]);
+    if (!row?.logo) return res.status(404).end();
+    const etag = `"logo-${new Date(row.logo_updated_at || 0).getTime()}"`;
+    res.set('Cache-Control', 'public, no-cache');
+    res.set('ETag', etag);
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    res.type('png').send(row.logo);
+  } catch (err) {
+    console.error('Get logo error:', err);
+    res.status(500).end();
   }
 };

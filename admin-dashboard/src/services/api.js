@@ -65,6 +65,8 @@ export const resetStaffPassword = (id, newPassword) => api.put(`/staff/${id}/res
 export const getStaffQRCode = (id) => api.get(`/staff/${id}/qr-code`);
 export const getNextStaffId = () => api.get('/staff/next-id');
 export const getStaffIdSettings = () => api.get('/institutions/staff-ids');
+export const uploadInstitutionLogo = (image) => api.put('/institutions/current/logo', { image });
+export const deleteInstitutionLogo = () => api.delete('/institutions/current/logo');
 export const updateStaffIdSettings = (data) => api.put('/institutions/staff-ids', data);
 export const getDepartments = () => api.get('/staff/departments');
 export const deleteStaff = (id) => api.delete(`/staff/${id}`);

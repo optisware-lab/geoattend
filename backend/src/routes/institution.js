@@ -4,6 +4,9 @@ const { authenticate, requireAdmin, requireSuperAdmin } = require('../middleware
 const { requireActiveSubscription } = require('../middleware/subscription');
 const { auditMiddleware } = require('../middleware/audit');
 
+// Public: the logo image (for <img> tags, the phone app and printouts)
+router.get('/:id/logo', institutionController.getLogo);
+
 router.use(authenticate);
 
 router.get('/subscription', institutionController.getSubscriptionStatus);
@@ -18,6 +21,8 @@ router.get('/qr-code', requireAdmin, institutionController.getInstitutionQR);
 router.get('/rules', institutionController.getAttendanceRules);
 router.put('/rules', requireAdmin, institutionController.updateAttendanceRules);
 router.get('/staff-ids', requireAdmin, institutionController.getStaffIdSettings);
+router.put('/current/logo', requireAdmin, auditMiddleware('update_logo', 'institution'), institutionController.uploadLogo);
+router.delete('/current/logo', requireAdmin, auditMiddleware('remove_logo', 'institution'), institutionController.deleteLogo);
 router.put('/staff-ids', requireAdmin, auditMiddleware('renumber_staff_ids', 'institution'), institutionController.updateStaffIdSettings);
 
 // Super admin only

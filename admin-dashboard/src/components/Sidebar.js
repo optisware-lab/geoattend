@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, FiMenu, FiX, FiCalendar, FiTrendingUp, FiShield, FiDollarSign, FiCreditCard } from 'react-icons/fi';
 import { getLeaveStats } from '../services/api';
 import { formatDate } from '../utils/format';
+import InstitutionLogo from './InstitutionLogo';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: FiHome },
@@ -199,7 +200,12 @@ export default function Sidebar({ user, onLogout }) {
 
       <aside style={sidebarStyle}>
         <div style={styles.logo}>
-          <FiMapPin style={styles.logoIcon} />
+          <InstitutionLogo
+            institutionId={user?.institutionId}
+            size={36}
+            style={{ background: '#fff', borderRadius: 8, padding: 3 }}
+            fallback={<FiMapPin style={styles.logoIcon} />}
+          />
           <div>
             <div style={styles.logoText}>GeoAttend</div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{formatDate(new Date())}</div>

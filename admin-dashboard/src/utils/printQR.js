@@ -1,3 +1,5 @@
+import { currentInstitutionId, logoUrl } from '../components/InstitutionLogo';
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -19,6 +21,7 @@ export function printStaffQRCode({ qrCode, staffId, firstName, lastName, departm
   const subtitle = escapeHtml([department, position].filter(Boolean).join(' • '));
   const safeStaffId = escapeHtml(staffId);
   const safeInstitutionName = escapeHtml(institutionName);
+  const logoSrc = escapeHtml(logoUrl(currentInstitutionId()) || '');
 
   win.document.write(`
     <!DOCTYPE html>
@@ -38,6 +41,7 @@ export function printStaffQRCode({ qrCode, staffId, firstName, lastName, departm
           }
           .institution { font-size: 12px; font-weight: 700; letter-spacing: 0.5px; color: #1a5276; text-transform: uppercase; margin-bottom: 12px; }
           img { width: 200px; height: 200px; }
+          img.school-logo { width: auto; height: 56px; max-width: 160px; object-fit: contain; margin-bottom: 8px; }
           .name { font-size: 16px; font-weight: 700; color: #2c3e50; margin-top: 12px; }
           .id { font-size: 13px; color: #7f8c8d; margin-top: 2px; }
           .subtitle { font-size: 12px; color: #95a5a6; margin-top: 4px; }
@@ -46,6 +50,7 @@ export function printStaffQRCode({ qrCode, staffId, firstName, lastName, departm
       </head>
       <body>
         <div class="card">
+          ${logoSrc ? `<img class="school-logo" src="${logoSrc}" alt="" onerror="this.remove()" />` : ''}
           ${safeInstitutionName ? `<div class="institution">${safeInstitutionName}</div>` : ''}
           <img src="${qrCode}" alt="QR Code" />
           <div class="name">${fullName}</div>
@@ -67,5 +72,6 @@ export function printStaffQRCode({ qrCode, staffId, firstName, lastName, departm
     win.print();
   };
   win.onload = triggerPrint;
-  setTimeout(triggerPrint, 300);
+  // Give the logo a moment to load if onload doesn't fire
+  setTimeout(triggerPrint, logoSrc ? 2500 : 300);
 }

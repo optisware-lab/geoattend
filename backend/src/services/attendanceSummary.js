@@ -51,7 +51,7 @@ async function loadAttendanceData(db, institutionId, { startDate, endDate, depar
   if (endDate) { leaveParams.push(endDate); leaveWhere += ` AND lr.start_date <= $${leaveParams.length}`; }
 
   const [inst, rules, staff, records, leaves] = await Promise.all([
-    db.query('SELECT name FROM institutions WHERE id = $1', [institutionId]),
+    db.query('SELECT name, logo FROM institutions WHERE id = $1', [institutionId]),
     db.query("SELECT working_days FROM attendance_rules WHERE institution_id = $1 AND member_type = 'staff'", [institutionId]),
     db.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.department, s.created_at
@@ -79,6 +79,7 @@ async function loadAttendanceData(db, institutionId, { startDate, endDate, depar
   const workingDays = rules.rows[0]?.working_days;
   return {
     institutionName: inst.rows[0]?.name || 'Institution',
+    institutionLogo: inst.rows[0]?.logo || null, // PNG buffer or null
     workingDays: Array.isArray(workingDays) && workingDays.length ? workingDays.map(Number) : DEFAULT_WORKING_DAYS,
     staff: staff.rows,
     records: records.rows,

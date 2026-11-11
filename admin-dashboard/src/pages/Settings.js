@@ -3,6 +3,8 @@ import { toast } from 'react-toastify';
 import { FiSave, FiMapPin, FiCrosshair, FiPrinter, FiDownload, FiShare2, FiRefreshCw } from 'react-icons/fi';
 import { getInstitution, updateInstitution, getAttendanceRules, updateAttendanceRules, getInstitutionQR, rotateInstitutionQR } from '../services/api';
 import StaffIdSettings from './StaffIdSettings';
+import LogoSettings from './LogoSettings';
+import { currentInstitutionId, logoUrl } from '../components/InstitutionLogo';
 
 const styles = {
   title: { fontSize: '24px', fontWeight: '700', marginBottom: '24px' },
@@ -143,6 +145,8 @@ export default function Settings() {
   return (
     <div>
       <h1 style={styles.title}>Settings</h1>
+
+      <LogoSettings />
 
       <div style={{ ...styles.grid, gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr' }}>
         <div style={styles.card}>
@@ -348,6 +352,7 @@ function InstitutionQR() {
         @media print { body { padding: 0; } }
       </style></head><body>
       <div class="card">
+        <img class="school-logo" src="${logoUrl(currentInstitutionId())}" alt="" onerror="this.remove()" style="width:auto;height:72px;max-width:220px;object-fit:contain;margin-bottom:8px" />
         <div class="logo">GeoAttend</div>
         <div class="subtitle">Attendance Sign-In</div>
         <img src="${qrCode}" />

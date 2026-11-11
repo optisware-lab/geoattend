@@ -178,6 +178,10 @@ api.interceptors.response.use(
   }
 );
 
+/** Public link to an institution's logo image (404 when it has none). */
+export const institutionLogoUrl = (institutionId) =>
+  `${API_BASE_URL}/institutions/${encodeURIComponent(institutionId)}/logo`;
+
 // Auth
 export const login = (staffId, password, institutionCode, deviceInfo) =>
   api.post('/auth/login', { staffId, password, institutionCode, ...deviceInfo });

@@ -382,6 +382,14 @@ exports.exportExcel = async (req, res) => {
     for (let c = 4; c <= 13; c += 1) wk.column(c).setWidth(13);
 
     let r = 1;
+    // Institution logo in the top-left corner, title rows below it
+    if (data.institutionLogo) {
+      try {
+        wk.addImage({ image: data.institutionLogo, type: 'picture', position: { type: 'oneCellAnchor', from: { col: 1, colOff: 0, row: 1, rowOff: 0 } } });
+        wk.row(1).setHeight(60);
+      } catch { /* report still downloads without it */ }
+      r += 1;
+    }
     wk.cell(r, 1).string(`${data.institutionName} - Attendance by week`).style(titleStyle);
     r += 1;
     wk.cell(r, 1).string(`Period: ${formatDateRange(summary.start, summary.end)}`);
@@ -506,6 +514,7 @@ exports.exportPDF = async (req, res) => {
 
     renderAttendancePdf(res, {
       institutionName: data.institutionName,
+      institutionLogo: data.institutionLogo,
       department: filters.department,
       staffIdFilter: filters.staffId,
       summary,

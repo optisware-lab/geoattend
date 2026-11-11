@@ -9,6 +9,7 @@ import { formatDate, formatDateLong, formatDateRange, formatDuration, relativeDa
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 import SelfieCapture from './SelfieCapture';
 import UpdateNotice from './UpdateNotice';
+import InstitutionLogo from '../components/InstitutionLogo';
 import {
   addToQueue, syncQueue, queueLength, pendingStatus, pendingRecord, isUnreachable, browserOnline,
   saveTodayStatus, readTodayStatus, saveRules, readRules, saveStats, readStats, clearCachedStatus,
@@ -168,10 +169,13 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
 
   return (
     <div style={st.scroll}>
-      <div style={st.header}>
-        <div style={st.greeting}>{greetingFor(now)},</div>
-        <div style={st.name}>{user?.firstName || 'Staff'}</div>
-        <div style={st.date}>{formatDateLong(now)}</div>
+      <div style={{ ...st.header, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={st.greeting}>{greetingFor(now)},</div>
+          <div style={st.name}>{user?.firstName || 'Staff'}</div>
+          <div style={st.date}>{formatDateLong(now)}</div>
+        </div>
+        <InstitutionLogo institutionId={user?.institutionId} size={64} alt={institution?.name ? `${institution.name} logo` : 'School logo'} style={{ borderRadius: 12 }} />
       </div>
 
       {message && <div style={st.banner(message.type)}>{message.text}</div>}

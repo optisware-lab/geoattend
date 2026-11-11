@@ -23,12 +23,16 @@ export default function StaffIdSettings() {
 
   const load = useCallback(() => {
     getStaffIdSettings()
-      .then(({ data }) => { setInfo(data); setPrefix(data.prefix); })
+      .then(({ data }) => {
+        if (!data || typeof data.prefix !== 'string') throw new Error('bad reply');
+        setInfo(data);
+        setPrefix(data.prefix);
+      })
       .catch(() => toast.error('Could not load staff ID settings'));
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const clean = prefix.trim().toUpperCase();
+  const clean = String(prefix || '').trim().toUpperCase();
   const valid = /^[A-Z]{2,5}$/.test(clean);
   const changed = info && clean !== info.prefix;
 
@@ -42,7 +46,7 @@ export default function StaffIdSettings() {
     try {
       const { data } = await updateStaffIdSettings({ prefix: clean, renumber });
       setInfo(data);
-      setPrefix(data.prefix);
+      setPrefix(data.prefix || clean);
       setLastChanges(data.changes || []);
       toast.success(data.changed ? `${data.changed} staff ID(s) updated` : 'Saved. New staff will get these initials.');
     } catch (err) {

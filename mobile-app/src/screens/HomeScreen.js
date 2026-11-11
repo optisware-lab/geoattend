@@ -20,6 +20,7 @@ import { useTheme } from '../services/theme';
 import { useI18n } from '../services/i18n';
 import { useToast } from '../services/Toast';
 import UpdateNotice from '../components/UpdateNotice';
+import InstitutionLogo from '../components/InstitutionLogo';
 import { confirmPresence, saveCheckInRequirements } from '../services/presence';
 
 /** "17:00:00" -> a Date today at 5:00 PM */
@@ -549,10 +550,13 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
       >
-        <View style={styles.header}>
-          <Text style={[styles.greeting, { color: theme.textSecondary }]}>{greeting},</Text>
-          <Text style={[styles.name, { color: theme.text }]}>{user?.firstName || 'Staff'}</Text>
-          <Text style={[styles.date, { color: theme.textMuted }]}>{formatDateLong(now)}</Text>
+        <View style={[styles.header, styles.headerRow]}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.greeting, { color: theme.textSecondary }]}>{greeting},</Text>
+            <Text style={[styles.name, { color: theme.text }]}>{user?.firstName || 'Staff'}</Text>
+            <Text style={[styles.date, { color: theme.textMuted }]}>{formatDateLong(now)}</Text>
+          </View>
+          <InstitutionLogo institutionId={user?.institutionId} size={60} refreshKey={refreshing ? 1 : 0} />
         </View>
 
         {/* Offline / Pending Sync Banner */}
@@ -802,6 +806,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f0f2f5' },
   scroll: { padding: 20 },
   header: { marginBottom: 24, paddingTop: 20 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   greeting: { fontSize: 16, color: '#7f8c8d' },
   name: { fontSize: 28, fontWeight: '700', color: '#2c3e50', marginTop: 2 },
   date: { fontSize: 13, color: '#95a5a6', marginTop: 4 },

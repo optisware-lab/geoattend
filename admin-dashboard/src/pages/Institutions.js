@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLock, FiTrash2, FiShield, FiHome, FiCheckCircle, FiClock, FiAlertTriangle, FiPlusCircle, FiCalendar } from 'react-icons/fi';
 import { PageHeader, StatCard } from '../components/ui';
 import { formatDate, timeAgo } from '../utils/format';
+import InstitutionLogo from '../components/InstitutionLogo';
 import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution, extendInstitutionTrial } from '../services/api';
 
 const styles = {
@@ -433,7 +434,10 @@ export default function Institutions() {
             return (
               <tr key={inst.id}>
                 <td style={styles.td}>
-                  <strong>{inst.name}</strong>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {inst.has_logo && <InstitutionLogo institutionId={inst.id} size={28} style={{ borderRadius: 4 }} />}
+                    <strong>{inst.name}</strong>
+                  </div>
                   {(inst.city || inst.region) && (
                     <div style={{ color: '#95a5a6', fontSize: '12px', marginTop: '2px' }}>
                       <FiMapPin size={11} /> {[inst.city, inst.region].filter(Boolean).join(', ')}
