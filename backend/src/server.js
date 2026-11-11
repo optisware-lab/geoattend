@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
+const { errorRef, sendServerError } = require('./utils/serverError');
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
 const staffRoutes = require('./routes/staff');
@@ -31,8 +32,16 @@ app.use(cors({
 }));
 
 // Body parsing (before rate limiting so the login limiter can key by account)
-app.use(express.json({ limit: '10mb' }));
+// strict: false accepts any JSON value, e.g. the body "null" that the phone
+// app sends with its login renewal. Strict parsing rejected it, which became
+// an Error 500 that kept staff with an expired login from using the app.
+// Anything that isn't an object becomes {} so routes can always read req.body.
+app.use(express.json({ limit: '10mb', strict: false }));
 app.use(express.urlencoded({ extended: true }));
+app.use((req, _res, next) => {
+  if (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body)) req.body = {};
+  next();
+});
 
 // Rate limiting. A whole school often shares one Wi-Fi IP, so the general
 // limit is generous and login attempts are counted per account, not per IP.
@@ -96,10 +105,20 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-// Error handler
+// Error handler. Request problems the parser or a library flags with a 4xx
+// status (bad JSON, body too large, ...) keep that status instead of
+// becoming a 500, and every reply carries a reference for the logs.
 app.use((err, req, res, _next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  const status = Number(err.status || err.statusCode);
+  if (status >= 400 && status < 500) {
+    const ref = errorRef('request', { code: err.type || err.code || String(status) });
+    console.warn(`[${ref}] ${req.method} ${req.originalUrl}: ${err.message}`);
+    return res.status(status).json({
+      error: status === 413 ? 'The upload is too large' : 'The request could not be read',
+      ref,
+    });
+  }
+  return sendServerError(res, 'unhandled', err, req);
 });
 
 // Auto-migrate: ensure column sizes are correct on startup

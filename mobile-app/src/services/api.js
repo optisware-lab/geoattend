@@ -76,7 +76,7 @@ export function renewSession() {
       const current = await AsyncStorage.getItem('token');
       if (!current) return null;
       try {
-        const { data } = await api.post('/auth/refresh-token', null, {
+        const { data } = await api.post('/auth/refresh-token', {}, {
           headers: { Authorization: `Bearer ${current}` },
           _isRefresh: true,
         });

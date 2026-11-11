@@ -36,7 +36,7 @@ export function renewSession() {
     refreshPromise = (async () => {
       if (!localStorage.getItem(KEYS.token)) return null;
       try {
-        const { data } = await api.post('/auth/refresh-token', null, { _isRefresh: true });
+        const { data } = await api.post('/auth/refresh-token', {}, { _isRefresh: true });
         localStorage.setItem(KEYS.token, data.token);
         return data.token;
       } catch (err) {

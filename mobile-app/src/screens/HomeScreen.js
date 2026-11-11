@@ -170,6 +170,8 @@ export default function HomeScreen() {
       setTodayStatus((await getPendingStatus()) || data.status);
       setRecord(data.record || null);
       setStatusError(null);
+      // The server answers again: send anything saved meanwhile right away
+      if (retryCount.current > 0) runSyncRef.current?.();
       retryCount.current = 0;
       clearTimeout(retryTimer.current);
     } catch (err) {
@@ -633,7 +635,7 @@ export default function HomeScreen() {
                 <>
                   <Text style={styles.actionBtnText}>{t('checkOut')}</Text>
                   <Text style={styles.actionBtnSub}>
-                    {checkedInAt ? `At work for ${formatDuration(workedMs)}` : (t('endShift') || 'End your shift')}
+                    {checkedInAt ? `At work for ${formatDuration(workedMs)}` : 'Tap when you finish work'}
                   </Text>
                 </>
               )}
