@@ -778,3 +778,59 @@ exports.createOrResetAdminCredentials = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+// ---- Staff IDs: school initials + number (RSS001) ----
+const { initialsFor, normalizePrefix, prefixFor, nextStaffId, renumberStaff, hasPrefix } = require('../utils/staffIds');
+
+async function staffIdSummary(db, institutionId) {
+  const inst = await db.query('SELECT name, staff_id_prefix FROM institutions WHERE id = $1', [institutionId]);
+  const row = inst.rows[0] || {};
+  const prefix = await prefixFor(db, institutionId);
+  const staff = await db.query(
+    `SELECT staff_id FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND role = 'staff'`,
+    [institutionId]
+  );
+  return {
+    prefix,
+    suggested: initialsFor(row.name),
+    custom: Boolean(normalizePrefix(row.staff_id_prefix)),
+    nextId: await nextStaffId(db, institutionId),
+    staffCount: staff.rows.length,
+    notFollowing: staff.rows.filter((s) => !hasPrefix(s.staff_id, prefix)).length,
+  };
+}
+
+/** Admin: the school's staff ID pattern and how many staff follow it. */
+exports.getStaffIdSettings = async (req, res) => {
+  try {
+    res.json(await staffIdSummary(req.tenantDb, req.user.institution_id));
+  } catch (err) {
+    console.error('Get staff ID settings error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+/**
+ * Admin: set the initials and give staff new IDs.
+ * body: { prefix: 'RSS', renumber: 'all' | 'missing' | 'none' }
+ * Old IDs keep working for login and printed QR cards.
+ */
+exports.updateStaffIdSettings = async (req, res) => {
+  const db = req.tenantDb;
+  const institutionId = req.user.institution_id;
+  const prefix = normalizePrefix(req.body?.prefix);
+  const mode = ['all', 'missing', 'none'].includes(req.body?.renumber) ? req.body.renumber : 'missing';
+  if (!prefix) return res.status(400).json({ error: 'Initials must be 2 to 5 letters, e.g. RSS' });
+
+  try {
+    await db.query('BEGIN');
+    await db.query('UPDATE institutions SET staff_id_prefix = $2, updated_at = NOW() WHERE id = $1', [institutionId, prefix]);
+    const changes = mode === 'none' ? [] : await renumberStaff(db, institutionId, { mode, prefix });
+    await db.query('COMMIT');
+    res.json({ ...(await staffIdSummary(db, institutionId)), changed: changes.length, changes: changes.slice(0, 500) });
+  } catch (err) {
+    await db.query('ROLLBACK').catch(() => {});
+    console.error('Update staff ID settings error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};

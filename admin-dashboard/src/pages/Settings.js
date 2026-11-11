@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { FiSave, FiMapPin, FiCrosshair, FiPrinter, FiDownload, FiShare2, FiRefreshCw } from 'react-icons/fi';
 import { getInstitution, updateInstitution, getAttendanceRules, updateAttendanceRules, getInstitutionQR, rotateInstitutionQR } from '../services/api';
+import StaffIdSettings from './StaffIdSettings';
 
 const styles = {
   title: { fontSize: '24px', fontWeight: '700', marginBottom: '24px' },
@@ -289,6 +290,8 @@ export default function Settings() {
         </p>
         <InstitutionQR />
       </div>
+
+      <StaffIdSettings />
     </div>
   );
 }

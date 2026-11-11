@@ -139,6 +139,82 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
     doc.y += 8;
   };
 
+  // ---- Monthly summary: banner, figures, one line per staff member ----
+  const months = summary.months || [];
+  const drawMonthSummary = (m) => {
+    doc.y += 18;
+    ensure(190);
+
+    const by = doc.y;
+    doc.rect(LEFT, by, WIDTH, 32).fill(C.green);
+    doc.font('Helvetica-Bold').fontSize(14).fillColor('#ffffff').text(`${m.label}: monthly summary`, LEFT + 10, by + 9, { lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff')
+      .text(`Attendance ${pct(m.rate)}`, LEFT, by + 11, { width: WIDTH - 10, align: 'right', lineBreak: false });
+    doc.y = by + 40;
+
+    const mTiles = [
+      { label: 'Work days', value: String(m.workDays), color: C.navy },
+      { label: 'Staff signed in', value: `${m.activeCount}/${m.staffCounted}`, color: C.navy },
+      { label: 'On time', value: String(m.onTime), color: C.green },
+      { label: 'Late', value: String(m.late), color: C.orange },
+      { label: 'Absent work days', value: String(m.missed), color: C.red },
+      { label: 'Leave days', value: String(m.leave), color: C.blue },
+      { label: 'Avg hours/day', value: m.avgHours == null ? '-' : `${m.avgHours}h`, color: C.navy },
+    ];
+    const g = 6;
+    const tw = (WIDTH - g * (mTiles.length - 1)) / mTiles.length;
+    const ty = doc.y;
+    mTiles.forEach((t, i) => {
+      const x = LEFT + i * (tw + g);
+      doc.roundedRect(x, ty, tw, 40, 4).lineWidth(0.8).strokeColor(C.line).stroke();
+      doc.font('Helvetica-Bold').fontSize(13).fillColor(t.color).text(t.value, x, ty + 7, { width: tw, align: 'center', lineBreak: false });
+      doc.font('Helvetica').fontSize(6.8).fillColor(C.muted).text(t.label, x, ty + 26, { width: tw, align: 'center', lineBreak: false });
+    });
+    doc.y = ty + 40 + 8;
+
+    const names = (list) => list.map((p) => (p.count != null ? `${p.name} (${p.count})` : p.name)).join(',  ');
+    const notes = [
+      m.perfect.length && [C.green, `Full attendance, never late (${m.perfect.length}): `, names(m.perfect)],
+      m.mostAbsent.length && [C.red, 'Most absent work days: ', names(m.mostAbsent)],
+      m.mostLate.length && [C.orange, 'Most often late: ', names(m.mostLate)],
+      m.neverIn.length && [C.red, `Did not sign in at all in ${m.label} (${m.neverIn.length}): `, names(m.neverIn)],
+    ].filter(Boolean);
+    notes.forEach(([color, head, body]) => {
+      ensure(24);
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor(color).text(head, LEFT, doc.y, { continued: true, width: WIDTH, lineGap: 1.5 });
+      doc.font('Helvetica').fillColor(C.text).text(body, { width: WIDTH, lineGap: 1.5 });
+      doc.y += 3;
+    });
+    doc.y += 4;
+
+    if (m.people.length) {
+      const fixed = 52 + 54 + 40 + 44 + 40 + 44 + 52;
+      table(
+        [
+          { key: 'name', label: 'Name', width: WIDTH - fixed, bold: true },
+          { key: 'id', label: 'Staff ID', width: 52, size: 7.5 },
+          { key: 'days', label: 'Days in', width: 54, align: 'center' },
+          { key: 'late', label: 'Late', width: 40, align: 'center' },
+          { key: 'missed', label: 'Absent', width: 44, align: 'center' },
+          { key: 'leave', label: 'Leave', width: 40, align: 'center' },
+          { key: 'rate', label: 'Rate', width: 44, align: 'center' },
+          { key: 'hours', label: 'Avg hours', width: 52, align: 'center' },
+        ],
+        m.people.map((r) => ({
+          name: r.name,
+          id: { text: r.staffId, color: C.muted },
+          days: { text: r.expected ? `${r.daysIn}/${r.expected}` : String(r.daysIn), bold: true },
+          late: { text: String(r.late), color: r.late ? C.orange : C.muted },
+          missed: { text: String(r.missed), color: r.missed ? C.red : C.muted },
+          leave: { text: String(r.leave), color: r.leave ? C.blue : C.muted },
+          rate: { text: pct(r.rate), bold: true, color: r.rate == null ? C.muted : r.rate >= 90 ? C.green : r.rate >= 70 ? C.orange : C.red },
+          hours: { text: r.avgHours == null ? '-' : `${r.avgHours}h`, color: C.muted },
+        })),
+        { continued: `${m.label}: monthly summary (continued)` }
+      );
+    }
+  };
+
   // ---- 1. Title and overall summary ----
   const { totals, weeks } = summary;
   const periodLabel = formatDateRange(summary.start, summary.end);
@@ -160,7 +236,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
     { label: 'Attendance rate', value: pct(totals.rate), color: C.navy },
     { label: 'On-time sign-ins', value: String(totals.onTime), color: C.green },
     { label: 'Late sign-ins', value: String(totals.late), color: C.orange },
-    { label: 'Missed work days', value: String(totals.missed), color: C.red },
+    { label: 'Absent work days', value: String(totals.missed), color: C.red },
   ];
   const gap = 8;
   const tileW = (WIDTH - gap * (tiles.length - 1)) / tiles.length;
@@ -193,7 +269,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
         { key: 'active', label: 'Staff signed in', width: 72, align: 'center' },
         { key: 'onTime', label: 'On time', width: 46, align: 'center' },
         { key: 'late', label: 'Late', width: 40, align: 'center' },
-        { key: 'missed', label: 'Missed days', width: 58, align: 'center' },
+        { key: 'missed', label: 'Absent days', width: 58, align: 'center' },
         { key: 'leave', label: 'Leave days', width: 52, align: 'center' },
         { key: 'rate', label: 'Rate', width: WIDTH - 48 - 160 - 72 - 46 - 40 - 58 - 52, align: 'center' },
       ],
@@ -208,6 +284,34 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
         rate: { text: pct(w.rate), bold: true },
       })),
       { minRows: weeks.length }
+    );
+  }
+
+  // Months at a glance (each month also gets its own summary after its weeks)
+  if (months.length) {
+    sectionTitle('Month by month at a glance');
+    table(
+      [
+        { key: 'month', label: 'Month', width: 120, bold: true },
+        { key: 'workDays', label: 'Work days', width: 56, align: 'center' },
+        { key: 'active', label: 'Staff signed in', width: 76, align: 'center' },
+        { key: 'onTime', label: 'On time', width: 50, align: 'center' },
+        { key: 'late', label: 'Late', width: 44, align: 'center' },
+        { key: 'missed', label: 'Absent days', width: 62, align: 'center' },
+        { key: 'leave', label: 'Leave days', width: 56, align: 'center' },
+        { key: 'rate', label: 'Rate', width: WIDTH - 120 - 56 - 76 - 50 - 44 - 62 - 56, align: 'center' },
+      ],
+      months.map((m) => ({
+        month: m.label,
+        workDays: String(m.workDays),
+        active: `${m.activeCount} of ${m.staffCounted}`,
+        onTime: { text: String(m.onTime), color: C.green },
+        late: { text: String(m.late), color: m.late ? C.orange : C.text },
+        missed: { text: String(m.missed), color: m.missed ? C.red : C.text },
+        leave: String(m.leave),
+        rate: { text: pct(m.rate), bold: true },
+      })),
+      { minRows: months.length }
     );
   }
 
@@ -228,7 +332,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
   const key = [
     ['7:10 AM', C.green, 'signed in on time'],
     ['7:46 AM', C.orange, 'signed in late'],
-    ['Missed', C.red, 'no sign-in on a work day'],
+    ['Absent', C.red, 'no sign-in on a work day'],
     ['Leave', C.blue, 'approved leave'],
   ];
   let kx = LEFT;
@@ -240,9 +344,18 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
   });
   doc.y = keyY + 30;
 
-  // ---- 2. One section per week ----
+  // ---- 2. One section per week, and a monthly summary when a month ends ----
   // Weeks follow each other; a week moves to the next page only when its
   // banner, summary and first few rows wouldn't fit on this one.
+  const monthsDone = new Set();
+  const summariseMonthsEndedBy = (dateKey) => {
+    months.forEach((m) => {
+      if (!monthsDone.has(m.key) && (dateKey == null || m.end <= dateKey)) {
+        monthsDone.add(m.key);
+        drawMonthSummary(m);
+      }
+    });
+  };
   weeks.forEach((w) => {
     doc.y += 14;
     ensure(150);
@@ -259,7 +372,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
     doc.font('Helvetica').fontSize(9).fillColor(C.text).text(
       `${w.active.length} of ${w.staffCounted} staff signed in this week.  `
         + `${w.signIns} sign-ins: ${w.onTime} on time, ${w.late} late.  `
-        + `${w.missed} missed work day${w.missed === 1 ? '' : 's'}${w.leave ? `, ${w.leave} day${w.leave === 1 ? '' : 's'} on leave` : ''}.`,
+        + `${w.missed} absent work day${w.missed === 1 ? '' : 's'}${w.leave ? `, ${w.leave} day${w.leave === 1 ? '' : 's'} on leave` : ''}.`,
       LEFT, doc.y, { width: WIDTH }
     );
     doc.y += 8;
@@ -296,7 +409,7 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
             else if (c.status === 'ontime') row[d.date] = { text: formatTime(c.checkIn), color: C.green };
             else if (c.status === 'late') row[d.date] = { text: formatTime(c.checkIn), color: C.orange, bold: true };
             else if (c.status === 'leave') row[d.date] = { text: 'Leave', color: C.blue };
-            else row[d.date] = { text: 'Missed', color: C.red };
+            else row[d.date] = { text: 'Absent', color: C.red };
           });
           return row;
         });
@@ -322,7 +435,11 @@ function renderAttendancePdf(stream, { institutionName, department, staffIdFilte
       doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(listOf(w.onLeave), LEFT, doc.y, { width: WIDTH, lineGap: 2 });
       doc.y += 8;
     }
+
+    // A month whose last day falls in this week gets its summary now
+    summariseMonthsEndedBy(w.end);
   });
+  summariseMonthsEndedBy(null);
 
   // ---- 3. Full sign-in log ----
   if (records.length) {

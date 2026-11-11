@@ -131,6 +131,10 @@ ALTER TABLE staff ADD COLUMN IF NOT EXISTS google_id VARCHAR(255) UNIQUE;
 
 -- Staff gender: 'male' | 'female' | NULL (not set yet)
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS gender VARCHAR(10);
+
+-- Staff IDs start with the school's initials (RSS001); old IDs still log in
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS staff_id_prefix VARCHAR(10);
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE staff ALTER COLUMN password_hash DROP NOT NULL;
 
 -- Ensure column sizes are correct (in case table was created with smaller sizes)

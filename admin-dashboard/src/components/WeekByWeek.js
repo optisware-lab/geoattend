@@ -40,7 +40,7 @@ function DayCell({ cell }) {
   if (cell.status === 'ontime') return <span style={{ color: '#1e8449', fontWeight: 600 }}>{formatTime(cell.checkIn)}</span>;
   if (cell.status === 'late') return <span style={{ color: '#c0640f', fontWeight: 700 }}>{formatTime(cell.checkIn)}</span>;
   if (cell.status === 'leave') return <span style={{ color: '#2471a3' }}>Leave</span>;
-  return <span style={{ color: '#c0392b' }}>Missed</span>;
+  return <span style={{ color: '#c0392b' }}>Absent</span>;
 }
 
 function NameList({ title, color, people }) {
@@ -156,7 +156,7 @@ export default function WeekByWeek({ data, loading }) {
                 <Pill tone="blue">{w.active.length} of {w.staffCounted} signed in</Pill>
                 <Pill tone="green">{w.onTime} on time</Pill>
                 {w.late > 0 && <Pill tone="orange">{w.late} late</Pill>}
-                {w.missed > 0 && <Pill tone="red">{w.missed} missed</Pill>}
+                {w.missed > 0 && <Pill tone="red">{w.missed} absent</Pill>}
                 {w.leave > 0 && <Pill tone="purple">{w.leave} leave</Pill>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 130 }}>

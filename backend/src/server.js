@@ -235,6 +235,9 @@ async function runAutoMigration(client) {
     `ALTER TABLE staff ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10, 2)`,
     // Staff gender: 'male' | 'female' | NULL (not set yet)
     `ALTER TABLE staff ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`,
+    // Staff IDs start with the school's initials (RSS001); old IDs still log in
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS staff_id_prefix VARCHAR(10)`,
+    "ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}'",
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
     // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€
@@ -446,6 +449,10 @@ app.listen(PORT, async () => {
   // not own tables); it happens before any tenant identity exists.
   await pool.withOwnerContext((client) => runAutoMigration(client));
   await pool.withSystemContext(() => ensureAdminExists());
+
+  // Data changes that run once per deploy that adds them (e.g. staff ID rename)
+  await require('./services/oneTimeJobs').runOneTimeJobs()
+    .catch((err) => console.error('[One-time] failed:', err.message));
 
   // Start scheduled jobs
   const { startScheduler } = require('./services/scheduler');

@@ -28,8 +28,8 @@ export default function RegisterScreen({ navigation, onLogin }) {
   const handleRegister = async () => {
     const { institutionCode, staffId, firstName, lastName, password, confirmPassword } = form;
 
-    if (!institutionCode.trim() || !staffId.trim() || !firstName.trim() || !lastName.trim() || !password) {
-      Alert.alert('Error', 'Please fill in Institution Code, Staff ID, First Name, Last Name, and Password');
+    if (!institutionCode.trim() || !firstName.trim() || !lastName.trim() || !password) {
+      Alert.alert('Error', 'Please fill in Institution Code, First Name, Last Name, and Password');
       return;
     }
     if (!form.gender) {
@@ -48,7 +48,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', {
-        staffId: staffId.trim().toUpperCase(),
+        staffId: staffId.trim().toUpperCase() || undefined,
         institutionCode: institutionCode.trim().toUpperCase(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -60,7 +60,9 @@ export default function RegisterScreen({ navigation, onLogin }) {
         position: form.position.trim() || undefined,
       });
 
-      Alert.alert('Success', data.message, [
+      Alert.alert('Account created', data.staffId
+        ? `Your Staff ID is ${data.staffId}. Use it with your password to log in.`
+        : data.message, [
         { text: 'Go to Login', onPress: () => navigation.goBack() },
       ]);
     } catch (err) {
@@ -94,10 +96,10 @@ export default function RegisterScreen({ navigation, onLogin }) {
 
             <View style={styles.row}>
               <View style={[styles.inputContainer, { flex: 1 }]}>
-                <Text style={styles.label}>Staff ID *</Text>
+                <Text style={styles.label}>Staff ID (optional)</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. STF001"
+                  placeholder="Leave blank to get one"
                   value={form.staffId}
                   onChangeText={v => update('staffId', v)}
                   autoCapitalize="characters"

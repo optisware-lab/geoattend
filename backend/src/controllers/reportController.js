@@ -329,7 +329,7 @@ exports.getWeeklyBreakdown = async (req, res) => {
   }
 };
 
-const CELL_TEXT = { leave: 'Leave', absent: 'Missed' };
+const CELL_TEXT = { leave: 'Leave', absent: 'Absent' };
 
 exports.exportExcel = async (req, res) => {
   try {
@@ -388,7 +388,7 @@ exports.exportExcel = async (req, res) => {
     r += 1;
     wk.cell(r, 1).string(
       `${summary.activeStaff} of ${summary.staffCount} staff signed in at least once. `
-      + `On time: ${summary.totals.onTime}. Late: ${summary.totals.late}. Missed work days: ${summary.totals.missed}. `
+      + `On time: ${summary.totals.onTime}. Late: ${summary.totals.late}. Absent work days: ${summary.totals.missed}. `
       + `Attendance rate: ${summary.totals.rate == null ? '-' : `${summary.totals.rate}%`}.`
     );
     r += 2;
@@ -397,10 +397,10 @@ exports.exportExcel = async (req, res) => {
       const lastCol = 3 + w.days.length + 3;
       wk.cell(r, 1, r, lastCol, true)
         .string(`Week ${w.number}:  ${formatDateRange(w.start, w.end)}   |   ${w.active.length} of ${w.staffCounted} staff signed in   |   `
-          + `${w.onTime} on time, ${w.late} late, ${w.missed} missed   |   Rate ${w.rate == null ? '-' : `${w.rate}%`}`)
+          + `${w.onTime} on time, ${w.late} late, ${w.missed} absent   |   Rate ${w.rate == null ? '-' : `${w.rate}%`}`)
         .style(weekStyle);
       r += 1;
-      const heads = ['Name', 'Staff ID', 'Department', ...w.days.map((d) => formatDate(d.date).replace(/, \d{4}$/, '')), 'Days signed in', 'Late', 'Missed'];
+      const heads = ['Name', 'Staff ID', 'Department', ...w.days.map((d) => formatDate(d.date).replace(/, \d{4}$/, '')), 'Days signed in', 'Late', 'Absent'];
       heads.forEach((h, i) => wk.cell(r, i + 1).string(h).style(headerStyle));
       r += 1;
 
@@ -422,7 +422,46 @@ exports.exportExcel = async (req, res) => {
       r += 1;
     });
 
-    // Sheet 2: every sign-in
+    // Sheet 2: one summary per month
+    const ms = wb.addWorksheet('Monthly summary');
+    ms.column(1).setWidth(30);
+    ms.column(2).setWidth(12);
+    ms.column(3).setWidth(18);
+    for (let c = 4; c <= 10; c += 1) ms.column(c).setWidth(12);
+    let mr = 1;
+    ms.cell(mr, 1).string(`${data.institutionName} - Monthly summary`).style(titleStyle);
+    mr += 2;
+    (summary.months || []).forEach((m) => {
+      ms.cell(mr, 1, mr, 10, true)
+        .string(`${m.label}   |   ${m.workDays} work days   |   ${m.activeCount} of ${m.staffCounted} staff signed in   |   `
+          + `${m.onTime} on time, ${m.late} late, ${m.missed} absent, ${m.leave} leave   |   Rate ${m.rate == null ? '-' : `${m.rate}%`}`)
+        .style(weekStyle);
+      mr += 1;
+      const notes = [
+        m.perfect.length && `Full attendance, never late: ${m.perfect.map((p) => p.name).join(', ')}`,
+        m.mostAbsent.length && `Most absent work days: ${m.mostAbsent.map((p) => `${p.name} (${p.count})`).join(', ')}`,
+        m.neverIn.length && `Did not sign in at all: ${m.neverIn.map((p) => p.name).join(', ')}`,
+      ].filter(Boolean);
+      notes.forEach((n) => { ms.cell(mr, 1, mr, 10, true).string(n); mr += 1; });
+      ['Name', 'Staff ID', 'Department', 'Days in', 'Work days', 'Late', 'Absent', 'Leave', 'Rate %', 'Avg hours'].forEach((h, i) => ms.cell(mr, i + 1).string(h).style(headerStyle));
+      mr += 1;
+      m.people.forEach((p) => {
+        ms.cell(mr, 1).string(p.name);
+        ms.cell(mr, 2).string(p.staffId || '');
+        ms.cell(mr, 3).string(p.department || '');
+        ms.cell(mr, 4).number(p.daysIn);
+        ms.cell(mr, 5).number(p.expected);
+        ms.cell(mr, 6).number(p.late);
+        ms.cell(mr, 7).number(p.missed);
+        ms.cell(mr, 8).number(p.leave);
+        if (p.rate != null) ms.cell(mr, 9).number(p.rate);
+        if (p.avgHours != null) ms.cell(mr, 10).number(p.avgHours);
+        mr += 1;
+      });
+      mr += 1;
+    });
+
+    // Sheet 3: every sign-in
     const ws = wb.addWorksheet('Sign-in log');
     const headers = ['Date', 'Staff ID', 'First Name', 'Last Name', 'Department', 'Position', 'Sign In', 'Sign Out', 'Method', 'Late', 'Within Geofence', 'Left Premises', 'Returned'];
     headers.forEach((h, i) => ws.cell(1, i + 1).string(h).style(headerStyle));

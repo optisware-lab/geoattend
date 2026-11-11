@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { createStaff, getStaffById, updateStaff, getStaffQRCode } from '../services/api';
+import { createStaff, getStaffById, updateStaff, getStaffQRCode, getNextStaffId } from '../services/api';
 import { FiArrowLeft, FiSave, FiPrinter } from 'react-icons/fi';
 import { printStaffQRCode } from '../utils/printQR';
 
@@ -41,8 +41,18 @@ export default function StaffForm() {
   });
   const [qrCode, setQrCode] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [idPrefix, setIdPrefix] = useState('');
 
   useEffect(() => {
+    if (!isEdit) {
+      // New staff get the school's next ID, e.g. RSS032
+      getNextStaffId()
+        .then(({ data }) => {
+          setIdPrefix(data.prefix || '');
+          setForm((f) => (f.staffId ? f : { ...f, staffId: data.staffId }));
+        })
+        .catch(() => {});
+    }
     if (isEdit) {
       getStaffById(id).then(r => {
         const s = r.data;
@@ -78,8 +88,8 @@ export default function StaffForm() {
           setLoading(false);
           return;
         }
-        await createStaff({ ...form, hourlyRate: rate });
-        toast.success('Staff created successfully');
+        const { data: created } = await createStaff({ ...form, hourlyRate: rate });
+        toast.success(`Staff created with ID ${created?.staff_id || form.staffId}`);
       }
       navigate('/staff');
     } catch (err) {
@@ -100,8 +110,13 @@ export default function StaffForm() {
         <form onSubmit={handleSubmit}>
           <div style={styles.grid}>
             <div style={styles.field}>
-              <label style={styles.label}>Staff ID *</label>
-              <input style={styles.input} name="staffId" value={form.staffId} onChange={handleChange} required disabled={isEdit} placeholder="e.g. STF001" />
+              <label style={styles.label}>Staff ID</label>
+              <input style={styles.input} name="staffId" value={form.staffId} onChange={(e) => setForm((p) => ({ ...p, staffId: e.target.value.toUpperCase() }))} disabled={isEdit} placeholder={idPrefix ? `e.g. ${idPrefix}001` : 'Assigned automatically'} />
+              {!isEdit && (
+                <span style={{ fontSize: 11, color: '#95a5a6' }}>
+                  Filled in automatically{idPrefix ? `. IDs here start with ${idPrefix}` : ''}.
+                </span>
+              )}
             </div>
             <div style={styles.field}>
               <label style={styles.label}>Role</label>

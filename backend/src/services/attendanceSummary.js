@@ -21,6 +21,14 @@ function mondayOf(d) {
   return addDays(d, -((d.getDay() + 6) % 7));
 }
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+function hoursOf(cell) {
+  const a = cell?.checkIn ? new Date(cell.checkIn).getTime() : NaN;
+  const b = cell?.checkOut ? new Date(cell.checkOut).getTime() : NaN;
+  return Number.isFinite(a) && Number.isFinite(b) && b > a ? (b - a) / 3600000 : null;
+}
+
 function displayName(s) {
   return `${s.first_name || ''} ${s.last_name || ''}`.trim();
 }
@@ -144,6 +152,28 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
   const totals = { expected: 0, attended: 0, signIns: 0, onTime: 0, late: 0, missed: 0, leave: 0 };
   const everActive = new Set();
 
+  // Calendar months, counted day by day (a week can cross into the next month)
+  const monthMap = new Map();
+  const monthFor = (d) => {
+    const key = dayKey(d).slice(0, 7);
+    if (!monthMap.has(key)) {
+      monthMap.set(key, {
+        key, label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`, start: dayKey(d), end: dayKey(d),
+        workDays: new Set(), people: new Map(),
+      });
+    }
+    const m = monthMap.get(key);
+    if (dayKey(d) < m.start) m.start = dayKey(d);
+    if (dayKey(d) > m.end) m.end = dayKey(d);
+    return m;
+  };
+  const monthRow = (m, p) => {
+    if (!m.people.has(p.id)) {
+      m.people.set(p.id, { id: p.id, staffId: p.staffId, name: p.name, department: p.department, daysIn: 0, late: 0, expected: 0, attended: 0, missed: 0, leave: 0, hours: 0, hoursDays: 0 });
+    }
+    return m.people.get(p.id);
+  };
+
   if (rangeStart <= rangeEnd) {
     for (let weekStart = mondayOf(rangeStart), n = 1; weekStart <= rangeEnd; weekStart = addDays(weekStart, 7)) {
       const from = weekStart < rangeStart ? rangeStart : weekStart;
@@ -179,8 +209,23 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
         days.forEach((d) => {
           const cell = cellFor(p, d);
           cells[dayKey(d)] = cell;
+          const month = monthFor(d);
+          if (workSet.has(d.getDay())) month.workDays.add(dayKey(d));
           if (!cell) return;
           const isWork = workSet.has(d.getDay());
+          const mr = monthRow(month, p);
+          if (cell.status === 'ontime' || cell.status === 'late') {
+            mr.daysIn += 1;
+            if (cell.status === 'late') mr.late += 1;
+            if (isWork) { mr.expected += 1; mr.attended += 1; }
+            const h = hoursOf(cell);
+            if (h != null) { mr.hours += h; mr.hoursDays += 1; }
+          } else if (cell.status === 'absent') {
+            mr.expected += 1;
+            mr.missed += 1;
+          } else if (cell.status === 'leave') {
+            mr.leave += 1;
+          }
           if (cell.status === 'ontime' || cell.status === 'late') {
             row.daysIn += 1;
             if (cell.status === 'late') row.late += 1;
@@ -225,6 +270,49 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
     weeks.flatMap((w) => w.days.filter((d) => d.isWorkDay).map((d) => d.date))
   ).size;
 
+  // One summary per calendar month in the period
+  const months = [...monthMap.values()].sort((a, b) => a.key.localeCompare(b.key)).map((m) => {
+    const rows = [...m.people.values()]
+      .filter((r) => r.expected > 0 || r.daysIn > 0 || r.leave > 0)
+      .map((r) => ({
+        ...r,
+        rate: r.expected ? Math.round((r.attended / r.expected) * 100) : null,
+        avgHours: r.hoursDays ? Math.round((r.hours / r.hoursDays) * 10) / 10 : null,
+        hours: Math.round(r.hours * 10) / 10,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const sum = (k) => rows.reduce((n, r) => n + r[k], 0);
+    const expected = sum('expected');
+    const attended = sum('attended');
+    const hoursDays = sum('hoursDays');
+    const counted = rows.filter((r) => r.expected > 0 || r.daysIn > 0);
+    return {
+      key: m.key,
+      label: m.label,
+      start: m.start,
+      end: m.end,
+      workDays: m.workDays.size,
+      staffCounted: counted.length,
+      activeCount: rows.filter((r) => r.daysIn > 0).length,
+      signIns: sum('daysIn'),
+      onTime: sum('daysIn') - sum('late'),
+      late: sum('late'),
+      missed: sum('missed'),
+      leave: sum('leave'),
+      expected,
+      attended,
+      rate: expected ? Math.round((attended / expected) * 100) : null,
+      avgHours: hoursDays ? Math.round((rows.reduce((n, r) => n + r.hours, 0) / hoursDays) * 10) / 10 : null,
+      perfect: rows.filter((r) => r.expected > 0 && r.missed === 0 && r.late === 0).map((r) => ({ name: r.name, staffId: r.staffId })),
+      neverIn: rows.filter((r) => r.expected > 0 && r.daysIn === 0).map((r) => ({ name: r.name, staffId: r.staffId })),
+      mostAbsent: rows.filter((r) => r.missed > 0).sort((a, b) => b.missed - a.missed || a.name.localeCompare(b.name)).slice(0, 5)
+        .map((r) => ({ name: r.name, staffId: r.staffId, count: r.missed })),
+      mostLate: rows.filter((r) => r.late > 0).sort((a, b) => b.late - a.late || a.name.localeCompare(b.name)).slice(0, 5)
+        .map((r) => ({ name: r.name, staffId: r.staffId, count: r.late })),
+      people: rows,
+    };
+  });
+
   return {
     start: dayKey(rangeStart),
     end: dayKey(rangeStart <= rangeEnd ? rangeEnd : requestedEnd),
@@ -234,6 +322,7 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
     neverSignedIn: people.filter((p) => !everActive.has(p.id)).map((p) => ({ staffId: p.staffId, name: p.name })),
     totals: { ...totals, rate: totals.expected ? Math.round((totals.attended / totals.expected) * 100) : null },
     weeks,
+    months,
   };
 }
 

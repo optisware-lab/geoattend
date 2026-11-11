@@ -84,11 +84,8 @@ async function checkInWithQrData(data) {
     qrCode = qrData.code;
     qrToken = qrData.token || null;
   } else if (qrData.staffId) {
-    // Individual staff ID card QR code
-    if (qrData.staffId !== user?.staffId) {
-      Alert.alert('Invalid QR Code', 'This QR code does not match your Staff ID.');
-      return;
-    }
+    // Individual staff ID card QR code. The server checks it is this person's
+    // own card; the ID printed on it can be an old one (IDs were renamed).
     qrCode = qrData.code;
   } else {
     Alert.alert('Invalid QR Code', 'This is not a valid GeoAttend QR code.');

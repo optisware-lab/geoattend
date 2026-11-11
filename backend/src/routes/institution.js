@@ -2,6 +2,7 @@ const router = require('express').Router();
 const institutionController = require('../controllers/institutionController');
 const { authenticate, requireAdmin, requireSuperAdmin } = require('../middleware/auth');
 const { requireActiveSubscription } = require('../middleware/subscription');
+const { auditMiddleware } = require('../middleware/audit');
 
 router.use(authenticate);
 
@@ -16,6 +17,8 @@ router.put('/current', requireAdmin, institutionController.updateInstitution);
 router.get('/qr-code', requireAdmin, institutionController.getInstitutionQR);
 router.get('/rules', institutionController.getAttendanceRules);
 router.put('/rules', requireAdmin, institutionController.updateAttendanceRules);
+router.get('/staff-ids', requireAdmin, institutionController.getStaffIdSettings);
+router.put('/staff-ids', requireAdmin, auditMiddleware('renumber_staff_ids', 'institution'), institutionController.updateStaffIdSettings);
 
 // Super admin only
 router.get('/', requireSuperAdmin, institutionController.getAllInstitutions);

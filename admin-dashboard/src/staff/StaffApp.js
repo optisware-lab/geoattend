@@ -205,8 +205,8 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
     e.preventDefault();
     const institutionCode = form.code.trim();
     const staffId = form.staffId.trim();
-    if (!institutionCode || !form.firstName.trim() || !form.lastName.trim() || !form.gender || !staffId || !form.phone.trim() || !form.email.trim()) {
-      setError('Fill in every field.');
+    if (!institutionCode || !form.firstName.trim() || !form.lastName.trim() || !form.gender || !form.phone.trim() || !form.email.trim()) {
+      setError('Fill in every field (Staff ID is optional).');
       return;
     }
     if (form.password.length < 6) { setError('Password must be at least 6 characters.'); return; }
@@ -215,13 +215,13 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
     setBusy(true);
     setError('');
     try {
-      await registerStaff({
-        institutionCode, staffId,
+      const { data: reg } = await registerStaff({
+        institutionCode, staffId: staffId || undefined,
         firstName: form.firstName.trim(), lastName: form.lastName.trim(),
         phone: form.phone.trim(), email: form.email.trim().toLowerCase(), password: form.password, gender: form.gender,
       });
-      // Sign straight in with the new account
-      const { data } = await staffLogin(institutionCode, staffId, form.password);
+      // Sign straight in with the ID the school gave them (e.g. RSS032)
+      const { data } = await staffLogin(institutionCode, reg?.staffId || staffId, form.password);
       session.save(data, institutionCode);
       onSignedIn();
     } catch (err) {
@@ -253,8 +253,8 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
           <input id="r-last" style={s.input} value={form.lastName} onChange={set('lastName')} autoComplete="family-name" />
         </div>
       </div>
-      <label style={s.label} htmlFor="r-staffid">Staff ID</label>
-      <input id="r-staffid" style={s.input} value={form.staffId} onChange={set('staffId')} placeholder="Your staff number, e.g. STF001" autoCapitalize="characters" autoComplete="username" />
+      <label style={s.label} htmlFor="r-staffid">Staff ID (optional)</label>
+      <input id="r-staffid" style={s.input} value={form.staffId} onChange={set('staffId')} placeholder="Leave blank to get your school's next ID" autoCapitalize="characters" autoComplete="username" />
       <label style={s.label} htmlFor="r-male">Gender</label>
       <GenderChoice value={form.gender} onChange={(g) => setForm((f) => ({ ...f, gender: g }))} idPrefix="r" />
       <label style={s.label} htmlFor="r-phone">Phone number</label>

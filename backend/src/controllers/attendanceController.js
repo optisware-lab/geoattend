@@ -190,7 +190,7 @@ async function runCheckIn(req, res, body) {
             details: { method, qrCode: String(qrCode || '').slice(0, 30) },
             ipAddress: req.ip,
           });
-          return res.status(400).json({ error: 'Invalid QR code' });
+          return res.status(400).json({ error: 'This is not your staff ID card. Scan your own card or the entrance QR code.' });
         }
       }
     }

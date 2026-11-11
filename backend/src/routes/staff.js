@@ -8,6 +8,7 @@ router.use(authenticate, requireActiveSubscription, requireAdmin);
 
 router.get('/', staffController.getAllStaff);
 router.get('/departments', staffController.getDepartments);
+router.get('/next-id', staffController.getNextStaffId);
 router.get('/:id', staffController.getStaffById);
 router.post('/', auditMiddleware('create_staff', 'staff'), staffController.createStaff);
 router.post('/bulk-import', auditMiddleware('bulk_import', 'staff'), staffController.bulkImport);

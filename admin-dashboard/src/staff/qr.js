@@ -55,7 +55,8 @@ export function parseQrPayload(text, user) {
     return { qrCode: qr.code, qrToken: qr.token || undefined };
   }
   if (qr.staffId) {
-    if (qr.staffId !== user?.staffId) return { error: 'This QR code does not match your Staff ID.' };
+    // The server checks the card is this person's own. The ID printed on it
+    // can be an old one (IDs were renamed to the school's initials).
     return { qrCode: qr.code };
   }
   return { error: 'This is not a valid GeoAttend QR code.' };

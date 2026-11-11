@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
 const { normalizeGender } = require('../utils/gender');
 const { v4: uuidv4 } = require('uuid');
 const { generateQRCode } = require('../utils/qrcode');
@@ -94,20 +95,36 @@ exports.getStaffById = async (req, res) => {
   }
 };
 
+/** The next free staff ID for this school, e.g. { staffId: 'RSS032', prefix: 'RSS' }. */
+exports.getNextStaffId = async (req, res) => {
+  try {
+    const institutionId = req.user.institution_id;
+    res.json({ staffId: await nextStaffId(req.tenantDb, institutionId), prefix: await prefixFor(req.tenantDb, institutionId) });
+  } catch (err) {
+    console.error('Next staff ID error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.createStaff = async (req, res) => {
   try {
-    const { staffId, firstName, lastName, email, phone, department, position, role, password, hourlyRate } = req.body;
+    const { firstName, lastName, email, phone, department, position, role, password, hourlyRate } = req.body;
     const institutionId = req.user.institution_id;
 
-    if (!staffId || !firstName || !lastName || !password) {
-      return res.status(400).json({ error: 'ID, first name, last name, and password are required' });
+    if (!firstName || !lastName || !password) {
+      return res.status(400).json({ error: 'First name, last name, and password are required' });
     }
+    // IDs follow the school's pattern (e.g. RSS001): blank or anything else gets the next one
+    const typedStaffId = String(req.body.staffId || '').trim().toUpperCase().slice(0, 50);
+    const staffId = typedStaffId && hasPrefix(typedStaffId, await prefixFor(req.tenantDb, institutionId))
+      ? typedStaffId
+      : await nextStaffId(req.tenantDb, institutionId);
     const gender = normalizeGender(req.body.gender);
     if (gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
-    // Check if staff ID already exists
+    // Check if staff ID already exists (current or old IDs)
     const existing = await req.tenantDb.query(
-      'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
+      'SELECT id FROM staff WHERE (staff_id = $1 OR $1 = ANY(legacy_staff_ids)) AND institution_id = $2',
       [staffId.toUpperCase(), institutionId]
     );
 
@@ -258,11 +275,16 @@ exports.bulkImport = async (req, res) => {
 
     for (const s of staff) {
       try {
-        if (!s.staffId || !s.firstName || !s.lastName) {
+        if (!s.firstName || !s.lastName) {
           results.errors.push({ staffId: s.staffId, error: 'Missing required fields' });
           results.failed++;
           continue;
         }
+        // IDs follow the school's pattern; others get the next free one
+        const typed = String(s.staffId || '').trim().toUpperCase();
+        s.staffId = typed && hasPrefix(typed, await prefixFor(req.tenantDb, institutionId))
+          ? typed
+          : await nextStaffId(req.tenantDb, institutionId);
 
         const passwordHash = await require('bcryptjs').hash(s.password || 'Pass@123', 12);
         const qrData = require('uuid').v4();

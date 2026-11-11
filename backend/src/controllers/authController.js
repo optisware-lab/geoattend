@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const { signSessionToken } = require('../utils/authToken');
+const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
 const { sendServerError } = require('../utils/serverError');
 const pool = require('../config/database');
 const crypto = require('crypto');
@@ -55,7 +56,10 @@ const loginHandler = async (req, res) => {
                 i.latitude as inst_lat, i.longitude as inst_lon, i.geofence_radius, i.institution_code as inst_institution_code
          FROM staff s
          JOIN institutions i ON s.institution_id = i.id
-         WHERE s.staff_id = $1 AND s.member_type = 'staff' AND s.institution_id = $2 AND s.is_active = true`,
+         WHERE (s.staff_id = $1 OR $1 = ANY(s.legacy_staff_ids))
+           AND s.member_type = 'staff' AND s.institution_id = $2 AND s.is_active = true
+         ORDER BY (s.staff_id = $1) DESC
+         LIMIT 1`,
         [staffId.toUpperCase(), institution.id]
       );
       if (result.rows.length === 0) {
@@ -380,36 +384,33 @@ const completeGoogleSignupHandler = async (req, res) => {
         return res.status(400).json({ error: 'First name and last name are required' });
       }
 
-      let finalStaffId = String(staffId || '').trim().toUpperCase().slice(0, 50);
-      if (finalStaffId) {
+      // Staff IDs follow the school's pattern (e.g. RSS001). A typed ID that
+      // doesn't is kept as an extra login ID, and a proper one is assigned.
+      const typedStaffId = String(staffId || '').trim().toUpperCase().slice(0, 50);
+      let finalStaffId = null;
+      let legacyIds = [];
+      if (typedStaffId) {
         const taken = await pool.query(
-          'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
-          [finalStaffId, institution.id]
+          'SELECT id FROM staff WHERE (staff_id = $1 OR $1 = ANY(legacy_staff_ids)) AND institution_id = $2',
+          [typedStaffId, institution.id]
         );
         if (taken.rows.length > 0) {
           return res.status(409).json({ error: 'That Staff ID is already registered. Leave it blank to get one assigned.' });
         }
-      } else {
-        for (let attempt = 0; attempt < 5 && !finalStaffId; attempt++) {
-          const candidate = 'G' + crypto.randomBytes(3).toString('hex').toUpperCase();
-          const taken = await pool.query(
-            'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
-            [candidate, institution.id]
-          );
-          if (taken.rows.length === 0) finalStaffId = candidate;
-        }
-        if (!finalStaffId) return res.status(500).json({ error: 'Could not assign a Staff ID — please try again' });
+        if (hasPrefix(typedStaffId, await prefixFor(pool, institution.id))) finalStaffId = typedStaffId;
+        else legacyIds = [typedStaffId];
       }
+      if (!finalStaffId) finalStaffId = await nextStaffId(pool, institution.id);
 
       const insert = await pool.query(
         `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position,
-                            google_id, profile_photo_url, qr_code_data, role, member_type, gender)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'staff', 'staff', $12)
+                            google_id, profile_photo_url, qr_code_data, role, member_type, gender, legacy_staff_ids)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'staff', 'staff', $12, $13)
          RETURNING id`,
         [institution.id, finalStaffId, cleanFirstName, cleanLastName, google.email, cleanPhone,
          department ? String(department).trim().slice(0, 100) : null,
          position ? String(position).trim().slice(0, 100) : null,
-         google.googleId, google.picture, `STAFF-${institution.id}-${finalStaffId}`, gender]
+         google.googleId, google.picture, `STAFF-${institution.id}-${finalStaffId}`, gender, legacyIds]
       );
       staffUuid = insert.rows[0].id;
       created = true;
@@ -443,8 +444,8 @@ const registerHandler = async (req, res) => {
     const { staffId, firstName, lastName, email, phone, password, department, position, institutionCode } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
 
-    if (!staffId || !firstName || !lastName || !password || !normalizedInstitutionCode) {
-      return res.status(400).json({ error: 'Staff ID, first name, last name, password, and institution code are required' });
+    if (!firstName || !lastName || !password || !normalizedInstitutionCode) {
+      return res.status(400).json({ error: 'First name, last name, password, and institution code are required' });
     }
 
     if (password.length < 6) {
@@ -459,26 +460,36 @@ const registerHandler = async (req, res) => {
     }
     const institutionId = institution.id;
 
-    // Check if staff ID already exists
-    const existing = await pool.query(
-      'SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2',
-      [staffId.toUpperCase(), institutionId]
-    );
+    // Check if staff ID already exists (current or old IDs)
+    const typedStaffId = String(staffId || '').trim().toUpperCase().slice(0, 50);
+    const existing = typedStaffId ? await pool.query(
+      'SELECT id FROM staff WHERE (staff_id = $1 OR $1 = ANY(legacy_staff_ids)) AND institution_id = $2',
+      [typedStaffId, institutionId]
+    ) : { rows: [] };
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Staff ID already registered. Please login or contact admin.' });
     }
 
+    // IDs follow the school's pattern (e.g. RSS001). The ID they typed still
+    // works for logging in, so the app can sign them straight in with it.
+    const followsPattern = Boolean(typedStaffId) && hasPrefix(typedStaffId, await prefixFor(pool, institutionId));
+    const finalStaffId = followsPattern ? typedStaffId : await nextStaffId(pool, institutionId);
+    const legacyIds = followsPattern || !typedStaffId ? [] : [typedStaffId];
+
     const passwordHash = await bcrypt.hash(password, 12);
-    const qrData = `STAFF-${institutionId}-${staffId.toUpperCase()}`;
+    const qrData = `STAFF-${institutionId}-${finalStaffId}`;
 
     const result = await pool.query(
-      `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, role, member_type, gender)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', 'staff', $11)
+      `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, role, member_type, gender, legacy_staff_ids)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', 'staff', $11, $12)
        RETURNING id`,
-      [institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null, department || null, position || null, passwordHash, qrData, gender]
+      [institutionId, finalStaffId, firstName, lastName, email || null, phone || null, department || null, position || null, passwordHash, qrData, gender, legacyIds]
     );
 
-    res.status(201).json({ message: 'Registration successful. You can now login with your Staff ID and password.' });
+    res.status(201).json({
+      message: `Registration successful. Your Staff ID is ${finalStaffId}.`,
+      staffId: finalStaffId,
+    });
   } catch (err) {
     console.error('Register error:', err);
     if (err.code === '23505') {
@@ -546,7 +557,7 @@ const forgotPasswordHandler = async (req, res) => {
     }
 
     const result = await req.tenantDb.query(
-      "SELECT id FROM staff WHERE staff_id = $1 AND email = $2 AND member_type = 'staff' AND institution_id = $3 AND is_active = true",
+      "SELECT id FROM staff WHERE (staff_id = $1 OR $1 = ANY(legacy_staff_ids)) AND email = $2 AND member_type = 'staff' AND institution_id = $3 AND is_active = true",
       [staffId.toUpperCase(), email.toLowerCase().trim(), institution.id]
     );
 
