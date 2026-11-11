@@ -8,6 +8,7 @@ import {
 import { formatDate, formatDateLong, formatDateRange, formatDuration, relativeDay, toInputDate, daysInclusive } from '../utils/format';
 import { decodeFrame, decodeImageFile, parseQrPayload } from './qr';
 import SelfieCapture from './SelfieCapture';
+import UpdateNotice from './UpdateNotice';
 import {
   addToQueue, syncQueue, queueLength, pendingStatus, pendingRecord, isUnreachable, browserOnline,
   saveTodayStatus, readTodayStatus, saveRules, readRules, saveStats, readStats, clearCachedStatus,
@@ -1043,6 +1044,8 @@ export default function StaffHome({ onSignOut }) {
       {tab === 'qr' && <QrTab active onQrText={onQrText} onPhoto={onPhoto} busy={busy} message={message} />}
       {tab === 'history' && <HistoryTab active />}
       {tab === 'profile' && <ProfileTab active onSignOut={signOut} />}
+
+      <UpdateNotice />
 
       {selfieRequest && (
         <SelfieCapture onDone={(photo) => { selfieRequest.resolve(photo); setSelfieRequest(null); }} />

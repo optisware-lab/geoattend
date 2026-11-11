@@ -450,6 +450,10 @@ app.listen(PORT, async () => {
   // Start scheduled jobs
   const { startScheduler } = require('./services/scheduler');
   startScheduler();
+
+  // One-time phone notifications added in this deploy (each is sent only once)
+  require('./services/announcements').sendPendingAnnouncements()
+    .catch((err) => console.error('[Announcement] failed:', err.message));
 });
 
 module.exports = app;

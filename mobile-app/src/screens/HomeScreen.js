@@ -19,6 +19,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from '../services/theme';
 import { useI18n } from '../services/i18n';
 import { useToast } from '../services/Toast';
+import UpdateNotice from '../components/UpdateNotice';
 import { confirmPresence, saveCheckInRequirements } from '../services/presence';
 
 /** "17:00:00" -> a Date today at 5:00 PM */
@@ -543,6 +544,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <UpdateNotice />
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
