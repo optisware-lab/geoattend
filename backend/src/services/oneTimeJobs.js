@@ -1,5 +1,6 @@
 const pool = require('../config/database');
 const { renumberStaff } = require('../utils/staffIds');
+const { formatName } = require('../utils/names');
 
 // Data changes that must run exactly once, right after the deploy that adds
 // them. Each runs in a transaction together with recording its key, so it
@@ -19,6 +20,23 @@ const JOBS = [
         if (changes.length) console.log(`[One-time] ${school.name}: ${changes.length} staff ID(s) renamed`);
       }
       return { renamed };
+    },
+  },
+  {
+    key: '2026-11-staff-names-same-format',
+    // Stored names like "BRIGHT anyawe" -> "Bright Anyawe", the same rule
+    // used when names are saved (utils/names.js).
+    async run(client) {
+      const staff = await client.query('SELECT id, first_name, last_name FROM staff');
+      let fixed = 0;
+      for (const s of staff.rows) {
+        const first = formatName(s.first_name);
+        const last = formatName(s.last_name);
+        if (first === s.first_name && last === s.last_name) continue;
+        await client.query('UPDATE staff SET first_name = $2, last_name = $3 WHERE id = $1', [s.id, first, last]);
+        fixed += 1;
+      }
+      return { fixed };
     },
   },
 ];

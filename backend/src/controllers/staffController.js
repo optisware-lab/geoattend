@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
+const { formatName } = require('../utils/names');
 const { normalizeGender } = require('../utils/gender');
 const { v4: uuidv4 } = require('uuid');
 const { generateQRCode } = require('../utils/qrcode');
@@ -140,7 +141,7 @@ exports.createStaff = async (req, res) => {
       `INSERT INTO staff (id, institution_id, staff_id, first_name, last_name, email, phone, department, position, role, password_hash, qr_code_data, member_type, hourly_rate, gender)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'staff', $13, $14)
        RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, qr_code_data, hourly_rate, gender, created_at`,
-      [id, institutionId, staffId.toUpperCase(), firstName, lastName, email || null, phone || null,
+      [id, institutionId, staffId.toUpperCase(), formatName(firstName), formatName(lastName), email || null, phone || null,
        department || null, position || null, role || 'staff', passwordHash, qrCodeData, hourlyRate || null, gender]
     );
 
@@ -186,7 +187,7 @@ exports.updateStaff = async (req, res) => {
         updated_at = NOW()
        WHERE id = $11
        RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, gender, updated_at`,
-      [firstName, lastName, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id,
+      [formatName(firstName) || null, formatName(lastName) || null, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id,
        genderSent ? gender : null, genderSent]
     );
 
@@ -293,7 +294,7 @@ exports.bulkImport = async (req, res) => {
           `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, member_type, gender)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', $11)
            ON CONFLICT (institution_id, staff_id) DO NOTHING`,
-          [institutionId, s.staffId.toUpperCase(), s.firstName, s.lastName, s.email || null, s.phone || null, s.department || null, s.position || null, passwordHash, qrData,
+          [institutionId, s.staffId.toUpperCase(), formatName(s.firstName), formatName(s.lastName), s.email || null, s.phone || null, s.department || null, s.position || null, passwordHash, qrData,
            normalizeGender(s.gender) || null]
         );
         results.success++;

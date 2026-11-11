@@ -3,6 +3,7 @@ const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const { signSessionToken } = require('../utils/authToken');
 const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
+const { formatName } = require('../utils/names');
 const { sendServerError } = require('../utils/serverError');
 const pool = require('../config/database');
 const crypto = require('crypto');
@@ -345,8 +346,8 @@ const completeGoogleSignupHandler = async (req, res) => {
     if (!PHONE_PATTERN.test(cleanPhone)) {
       return res.status(400).json({ error: 'Please enter a valid phone number' });
     }
-    const cleanFirstName = String(firstName || '').trim().slice(0, 100);
-    const cleanLastName = String(lastName || '').trim().slice(0, 100);
+    const cleanFirstName = formatName(String(firstName || ''));
+    const cleanLastName = formatName(String(lastName || ''));
     const gender = normalizeGender(req.body.gender);
     if (gender === undefined) return res.status(400).json({ error: 'Gender must be male or female' });
 
@@ -483,7 +484,7 @@ const registerHandler = async (req, res) => {
       `INSERT INTO staff (institution_id, staff_id, first_name, last_name, email, phone, department, position, password_hash, qr_code_data, role, member_type, gender, legacy_staff_ids)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'staff', 'staff', $11, $12)
        RETURNING id`,
-      [institutionId, finalStaffId, firstName, lastName, email || null, phone || null, department || null, position || null, passwordHash, qrData, gender, legacyIds]
+      [institutionId, finalStaffId, formatName(firstName), formatName(lastName), email || null, phone || null, department || null, position || null, passwordHash, qrData, gender, legacyIds]
     );
 
     res.status(201).json({
