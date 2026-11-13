@@ -9,9 +9,9 @@
 // Only this site's own GET requests are handled. API calls (another domain),
 // Google sign-in and everything else go straight to the network.
 
-const CACHE = 'geoattend-v3';
+const CACHE = 'geoattend-v4';
 const PAGES = ['/staff', '/'];
-const EXTRAS = ['/icon-192.png', '/icon-512.png', '/manifest.json', '/staff-manifest.json'];
+const EXTRAS = ['/icon-192.png', '/icon-512.png', '/admin-icon-192.png', '/admin-icon-512.png', '/manifest.json', '/staff-manifest.json'];
 // On Wi-Fi with no internet a request can hang for a long time: after this
 // long, show the saved page instead of a blank screen
 const PAGE_TIMEOUT_MS = 6000;

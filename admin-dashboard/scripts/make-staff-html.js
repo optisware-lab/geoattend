@@ -20,6 +20,10 @@ const replace = (pattern, value, what) => {
 replace(/<title>[^<]*<\/title>/, `<title>${TITLE}</title>`, '<title>');
 replace(/<meta name="description" content="[^"]*"\s*\/?>/, `<meta name="description" content="${DESCRIPTION}"/>`, 'meta description');
 replace(/<link rel="manifest" href="[^"]*"\s*\/?>/, '<link rel="manifest" href="/staff-manifest.json"/>', 'manifest link');
+// Staff get the blue icon (same as the phone app); index.html has the admin one
+replace(/<link rel="icon" href="[^"]*"\s*\/?>/, '<link rel="icon" href="/icon-192.png"/>', 'icon link');
+replace(/<link rel="apple-touch-icon" href="[^"]*"\s*\/?>/, '<link rel="apple-touch-icon" href="/icon-192.png"/>', 'apple-touch-icon link');
+replace(/<meta name="apple-mobile-web-app-title" content="[^"]*"\s*\/?>/, '<meta name="apple-mobile-web-app-title" content="GeoAttend"/>', 'home screen title');
 
 const ogTags = [
   ['og:type', 'website'],
