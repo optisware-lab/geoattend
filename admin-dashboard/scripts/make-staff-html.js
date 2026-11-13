@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SITE = 'https://geoattend-mu.vercel.app';
-const TITLE = 'GeoAttend Staff Check-In';
+const TITLE = 'GeoAttend Staff by Optisware';
 const DESCRIPTION = 'Check in and out of work with GPS or a QR code. Sign in or sign up in one tap with Google.';
 
 const buildDir = path.join(__dirname, '..', 'build');
@@ -23,7 +23,7 @@ replace(/<link rel="manifest" href="[^"]*"\s*\/?>/, '<link rel="manifest" href="
 // Staff get the blue icon (same as the phone app); index.html has the admin one
 replace(/<link rel="icon" href="[^"]*"\s*\/?>/, '<link rel="icon" href="/icon-192.png"/>', 'icon link');
 replace(/<link rel="apple-touch-icon" href="[^"]*"\s*\/?>/, '<link rel="apple-touch-icon" href="/icon-192.png"/>', 'apple-touch-icon link');
-replace(/<meta name="apple-mobile-web-app-title" content="[^"]*"\s*\/?>/, '<meta name="apple-mobile-web-app-title" content="GeoAttend"/>', 'home screen title');
+replace(/<meta name="apple-mobile-web-app-title" content="[^"]*"\s*\/?>/, `<meta name="apple-mobile-web-app-title" content="${TITLE}"/>`, 'home screen title');
 
 const ogTags = [
   ['og:type', 'website'],
