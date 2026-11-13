@@ -516,10 +516,15 @@ export default function StaffApp() {
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
-    document.title = 'GeoAttend Staff';
+    document.title = 'GeoAttend Staff by Optisware';
     // Home Screen icon should reopen this page, not the admin dashboard
     const manifest = document.querySelector('link[rel="manifest"]');
     if (manifest) manifest.setAttribute('href', '/staff-manifest.json');
+    // Staff get the blue icon, not the admin one
+    document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]')
+      .forEach((link) => link.setAttribute('href', '/icon-192.png'));
+    const appTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (appTitle) appTitle.setAttribute('content', 'GeoAttend Staff by Optisware');
   }, []);
 
   const handleSignOut = useCallback((reason) => {
