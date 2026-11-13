@@ -357,7 +357,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
 
         <View style={styles.versionBox}>
           <Text style={[styles.versionText, { color: theme.textSecondary }]}>
-            GeoAttend {Constants.expoConfig?.version || ''} · {updateLabel}
+            GeoAttend Staff by Optisware · {Constants.expoConfig?.version || ''} · {updateLabel}
           </Text>
           <TouchableOpacity onPress={handleCheckForUpdates} disabled={checkingUpdate}>
             <Text style={[styles.versionLink, { color: theme.primary || '#1a5276' }]}>

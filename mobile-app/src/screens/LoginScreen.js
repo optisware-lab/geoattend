@@ -99,8 +99,8 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
           <View style={styles.iconCircle}>
             <Text style={styles.iconText}>G</Text>
           </View>
-          <Text style={styles.appName}>GeoAttend</Text>
-          <Text style={styles.subtitle}>Staff Attendance System</Text>
+          <Text style={styles.appName}>GeoAttend Staff</Text>
+          <Text style={styles.subtitle}>by Optisware</Text>
         </View>
 
         <AuthSwitch active="signin" onSignUp={() => onRegister && onRegister()} />
