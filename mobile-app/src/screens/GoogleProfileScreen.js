@@ -103,7 +103,7 @@ export default function GoogleProfileScreen({ navigation, route, onLogin }) {
                 <Text style={styles.label}>Institution Code *</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. INST-123456"
+                  placeholder="e.g. RSS"
                   value={form.institutionCode}
                   onChangeText={v => update('institutionCode', v.toUpperCase())}
                   autoCapitalize="characters"

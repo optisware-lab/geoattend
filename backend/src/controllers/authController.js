@@ -3,6 +3,7 @@ const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const { signSessionToken } = require('../utils/authToken');
 const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
+const { freeAdminId } = require('../utils/institutionCodes');
 const { formatName } = require('../utils/names');
 const { sendServerError } = require('../utils/serverError');
 const pool = require('../config/database');
@@ -70,17 +71,20 @@ const loginHandler = async (req, res) => {
         });
       }
     } else {
-      // No institution code provided — try to resolve by staffId across institutions
+      // No institution code provided — admins are found by their Admin ID
+      // alone (it starts with the school code, e.g. RSSADMIN). An old ID
+      // that was renamed still works.
       result = await pool.query(
         `SELECT s.*, i.name as institution_name, i.address as inst_address, i.city as inst_city, i.region as inst_region, i.latitude as inst_lat, i.longitude as inst_lon, i.geofence_radius, i.institution_code
          FROM staff s
          JOIN institutions i ON s.institution_id = i.id
-         WHERE s.staff_id = $1 AND s.member_type = 'staff' AND s.is_active = true AND s.role IN ('admin','super_admin')`,
-        [staffId.toUpperCase()]
+         WHERE (s.staff_id = $1 OR $1 = ANY(s.legacy_staff_ids))
+           AND s.member_type = 'staff' AND s.is_active = true AND s.role IN ('admin','super_admin')`,
+        [staffId.trim().toUpperCase()]
       );
 
       if (result.rows.length === 0) {
-        return res.status(400).json({ error: 'Staff not found. Please provide your institution code.' });
+        return res.status(400).json({ error: 'Staff not found. Please enter your school code too.' });
       }
       if (result.rows.length > 1) {
         return res.status(400).json({ error: 'Multiple institutions found for this Staff ID — please provide your institution code.' });
@@ -637,7 +641,7 @@ exports.createInitialAdmin = async (req, res) => {
       return res.status(409).json({ error: 'An admin account already exists for this institution' });
     }
 
-    const finalStaffId = staffId ? staffId.toUpperCase() : ('ADMIN' + crypto.randomBytes(3).toString('hex').toUpperCase());
+    const finalStaffId = staffId ? staffId.toUpperCase() : await freeAdminId(req.tenantDb, institution.institution_code);
 
     // Ensure unique staff id within institution
     const collide = await req.tenantDb.query('SELECT id FROM staff WHERE staff_id = $1 AND institution_id = $2', [finalStaffId, institutionId]);

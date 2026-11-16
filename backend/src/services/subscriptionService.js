@@ -10,8 +10,13 @@ async function getInstitutionByCode(institutionCode, db = pool) {
   const normalized = normalizeInstitutionCode(institutionCode);
   if (!normalized) return null;
 
+  // A school's old code (e.g. INST-123456 before codes used initials) still
+  // works, so phones that saved it keep signing in.
   const result = await db.query(
-    'SELECT id, name, institution_code FROM institutions WHERE institution_code = $1',
+    `SELECT id, name, institution_code FROM institutions
+     WHERE institution_code = $1 OR $1 = ANY(COALESCE(legacy_institution_codes, '{}'))
+     ORDER BY (institution_code = $1) DESC
+     LIMIT 1`,
     [normalized]
   );
   return result.rows[0] || null;

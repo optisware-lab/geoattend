@@ -73,11 +73,14 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
       await AsyncStorage.setItem('token', data.token);
       await AsyncStorage.setItem('user', JSON.stringify(data.user));
       await AsyncStorage.setItem('institution', JSON.stringify(data.institution));
-      await AsyncStorage.setItem('institutionCode', normalizedInstitutionCode);
+      // Remember what the server says, so a renamed school code or Staff ID
+      // (e.g. INST-123456 -> RSS) is filled in correctly next time
+      const savedCode = data.institution?.code || normalizedInstitutionCode;
+      if (savedCode) await AsyncStorage.setItem('institutionCode', String(savedCode).toUpperCase());
 
       // Save credentials securely for next login autofill
       await saveCredentials({
-        identifier: staffId.trim().toUpperCase(),
+        identifier: data.user?.staffId || staffId.trim().toUpperCase(),
         password,
       });
 
@@ -135,7 +138,7 @@ export default function LoginScreen({ onLogin, onForgotPassword, onForgotStaffId
             <Text style={styles.label}>Institution Code</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. INST-123456"
+              placeholder="e.g. RSS"
               value={institutionCode}
               onChangeText={(v) => setInstitutionCode(v.toUpperCase())}
               autoCapitalize="characters"

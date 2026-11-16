@@ -128,7 +128,7 @@ function CompleteGoogleProfile({ step, onDone, onCancel }) {
         <>
           <label style={s.label} htmlFor="g-code">Institution Code</label>
           <input id="g-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="e.g. INST-123456" autoCapitalize="characters" />
+            placeholder="e.g. RSS" autoCapitalize="characters" />
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label style={s.label} htmlFor="g-first">First name</label>
@@ -242,7 +242,7 @@ function SignUpForm({ initialCode, onGoogle, googleBusy, onSignedIn, onBack }) {
       <Divider text="OR FILL IN THE FORM" />
 
       <label style={s.label} htmlFor="r-code">Institution Code</label>
-      <input id="r-code" style={s.input} value={form.code} onChange={set('code')} placeholder="Ask your administrator, e.g. INST-123456" autoCapitalize="characters" />
+      <input id="r-code" style={s.input} value={form.code} onChange={set('code')} placeholder="Ask your administrator, e.g. RSS" autoCapitalize="characters" />
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>
           <label style={s.label} htmlFor="r-first">First name</label>
@@ -473,7 +473,7 @@ function SignIn({ onSignedIn }) {
 
             <label style={s.label} htmlFor="code">Institution Code</label>
             <input id="code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="e.g. INST-123456" autoCapitalize="characters" autoComplete="organization" />
+              placeholder="e.g. RSS" autoCapitalize="characters" autoComplete="organization" />
             <label style={s.label} htmlFor="staffId">Staff ID</label>
             <input id="staffId" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)}
               placeholder="Your Staff ID" autoCapitalize="characters" autoComplete="username" />

@@ -62,7 +62,7 @@ export default function ForgotStaffIdScreen({ navigation }) {
             <Text style={styles.label}>Institution Code</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. INST-123456"
+              placeholder="e.g. RSS"
               value={institutionCode}
               onChangeText={(v) => setInstitutionCode(v.toUpperCase())}
               autoCapitalize="characters"

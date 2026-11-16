@@ -91,7 +91,9 @@ export const session = {
     localStorage.setItem(KEYS.token, token);
     localStorage.setItem(KEYS.user, JSON.stringify(user));
     localStorage.setItem(KEYS.institution, JSON.stringify(institution));
-    const code = institutionCode || institution?.code;
+    // The server's code wins, so a renamed school code (INST-123456 -> RSS)
+    // replaces the old one that was typed or saved
+    const code = institution?.code || institutionCode;
     if (code) localStorage.setItem(KEYS.code, code);
     if (user?.staffId) localStorage.setItem(KEYS.staffId, user.staffId);
   },

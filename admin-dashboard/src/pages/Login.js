@@ -77,7 +77,8 @@ const styles = {
 
 export default function Login({ onLogin }) {
   const [institutionCode, setInstitutionCode] = useState(localStorage.getItem('institutionCode') || '');
-  const [staffId, setStaffId] = useState('');
+  // Remembered from the last login on this computer, so it is filled in
+  const [staffId, setStaffId] = useState(localStorage.getItem('adminLastId') || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -91,19 +92,22 @@ export default function Login({ onLogin }) {
 
     setLoading(true);
     try {
-      const codeTrim = institutionCode.trim();
-      // Super admin (ADMIN001) can login without institution code
-      const { data } = await login(staffId, password, codeTrim || undefined);
-      localStorage.setItem('token', data.token);
-      const resolvedCode = data.institution?.code || codeTrim;
-      if (resolvedCode) localStorage.setItem('institutionCode', String(resolvedCode).toUpperCase());
+      const codeTrim = institutionCode.trim().toUpperCase();
+      // An Admin ID (e.g. RSSADMIN) is enough on its own; the school code is optional
+      const { data } = await login(staffId.trim().toUpperCase(), password, codeTrim || undefined);
 
       if (data.user.role !== 'admin' && data.user.role !== 'super_admin') {
         toast.error('Admin access required');
-        localStorage.removeItem('token');
         setLoading(false);
         return;
       }
+
+      localStorage.setItem('token', data.token);
+      // Remember the school code and Admin ID the server returns (renamed ones
+      // like INST-123456 -> RSS are swapped in), so next time they are filled in
+      const resolvedCode = data.institution?.code || codeTrim;
+      if (resolvedCode) localStorage.setItem('institutionCode', String(resolvedCode).toUpperCase());
+      if (data.user.staffId) localStorage.setItem('adminLastId', data.user.staffId);
 
       onLogin(data.user);
       toast.success('Login successful');
@@ -127,15 +131,17 @@ export default function Login({ onLogin }) {
 
         <form onSubmit={handleSubmit}>
           <div style={{ fontSize: 12, color: '#2c3e50', marginBottom: 12, padding: 10, background: '#e8f5e9', borderRadius: 8, lineHeight: 1.5 }}>
-            <strong style={{ color: '#27ae60' }}>Super Admin (ADMIN001):</strong> Leave institution code empty to login<br/>
-            <strong style={{ color: '#3498db', marginTop: 4, display: 'inline-block' }}>Institution Admins:</strong> Enter your institution code and credentials provided by super admin
+            Your Admin ID starts with your school's initials, e.g. <strong>RSSADMIN</strong>.
+            This computer remembers it after your first login, and your browser can save your password.
           </div>
           <div style={styles.inputGroup}>
             <FiMapPin style={styles.inputIcon} size={18} />
             <input
               style={styles.input}
               type="text"
-              placeholder="Institution Code (optional for ADMIN001)"
+              name="organization"
+              autoComplete="organization"
+              placeholder="School code, e.g. RSS (optional)"
               value={institutionCode}
               onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
             />
@@ -145,9 +151,12 @@ export default function Login({ onLogin }) {
             <input
               style={styles.input}
               type="text"
-              placeholder="Admin ID"
+              name="username"
+              autoComplete="username"
+              autoCapitalize="characters"
+              placeholder="Admin ID, e.g. RSSADMIN"
               value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
+              onChange={(e) => setStaffId(e.target.value.toUpperCase())}
             />
           </div>
           <div style={styles.inputGroup}>
@@ -155,6 +164,9 @@ export default function Login({ onLogin }) {
             <input
               style={styles.input}
               type={showPassword ? 'text' : 'password'}
+              name="password"
+              autoComplete="current-password"
+              autoFocus={Boolean(staffId)}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

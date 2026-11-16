@@ -245,6 +245,8 @@ async function runAutoMigration(client) {
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS term_start DATE`,
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS term_end DATE`,
     "ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}'",
+    // School codes use initials (RSS); old codes (INST-123456) still sign in
+    "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS legacy_institution_codes TEXT[] NOT NULL DEFAULT '{}'",
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
     // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€

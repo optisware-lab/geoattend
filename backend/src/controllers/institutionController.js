@@ -13,13 +13,11 @@ const {
 } = require('../services/subscriptionService');
 const { CURRENCY, getPlansForStaffCount, getPlan } = require('../config/pricing');
 
-async function generateInstitutionCode(db) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const code = `INST-${Math.floor(100000 + Math.random() * 900000)}`;
-    const exists = await db.query('SELECT id FROM institutions WHERE institution_code = $1', [code]);
-    if (exists.rows.length === 0) return code;
-  }
-  return `INST-${Date.now().toString().slice(-6)}`;
+const { freeInstitutionCode, freeAdminId } = require('../utils/institutionCodes');
+
+/** School code from the school's initials, e.g. "RSS" (or "RSS2" if taken). */
+function generateInstitutionCode(db, name) {
+  return freeInstitutionCode(db, name);
 }
 
 /** Upsert the AES-encrypted admin credentials so the super admin can decrypt them later. */
@@ -36,8 +34,13 @@ async function storeAdminCredentials(institutionId, staffId, rawPassword, client
 }
 
 /** Create the initial admin account for an institution and store its credentials. */
-async function createInitialAdminCredentials(institutionId, providedPassword, client = pool) {
-  const staffId = 'ADMIN' + crypto.randomBytes(3).toString('hex').toUpperCase();
+async function createInitialAdminCredentials(institutionId, providedPassword, client = pool, institutionCode) {
+  let code = institutionCode;
+  if (!code) {
+    const r = await client.query('SELECT institution_code FROM institutions WHERE id = $1', [institutionId]);
+    code = r.rows[0]?.institution_code;
+  }
+  const staffId = await freeAdminId(client, code);
   const rawPassword = providedPassword || crypto.randomBytes(4).toString('hex');
   const passwordHash = await bcrypt.hash(rawPassword, 12);
   const qrData = `STAFF-${institutionId}-${staffId}`;
@@ -234,7 +237,7 @@ exports.createInstitution = async (req, res) => {
     let created = null;
     let institutionCode = null;
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
-      institutionCode = await generateInstitutionCode(req.tenantDb);
+      institutionCode = await generateInstitutionCode(req.tenantDb, name);
       try {
         const result = await client.query(
           `INSERT INTO institutions (id, name, institution_code, address, city, region, latitude, longitude, geofence_radius)
@@ -260,7 +263,7 @@ exports.createInstitution = async (req, res) => {
 
     // Ensure code is present (defensive against triggers/DB quirks)
     if (!created.institution_code) {
-      const repairCode = await generateInstitutionCode(req.tenantDb);
+      const repairCode = await generateInstitutionCode(req.tenantDb, name);
       const upd = await client.query(
         `UPDATE institutions SET institution_code = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
         [repairCode, id]
@@ -295,7 +298,7 @@ exports.createInstitution = async (req, res) => {
     await ensureTrialSubscription(id, client);
 
     // Always create initial admin account + store credentials
-    const adminCredentials = await createInitialAdminCredentials(id, null, client);
+    const adminCredentials = await createInitialAdminCredentials(id, null, client, created.institution_code);
 
     await client.query('COMMIT');
 
@@ -321,7 +324,7 @@ exports.repairInstitutionCode = async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Institution id is required' });
 
-    const existing = await req.tenantDb.query('SELECT id, institution_code FROM institutions WHERE id = $1', [id]);
+    const existing = await req.tenantDb.query('SELECT id, name, institution_code FROM institutions WHERE id = $1', [id]);
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Institution not found' });
     }
@@ -329,7 +332,7 @@ exports.repairInstitutionCode = async (req, res) => {
       return res.json({ message: 'Institution already has a code', institution: existing.rows[0] });
     }
 
-    const code = await generateInstitutionCode(req.tenantDb);
+    const code = await generateInstitutionCode(req.tenantDb, existing.rows[0].name);
     const updated = await req.tenantDb.query(
       'UPDATE institutions SET institution_code = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
       [code, id]

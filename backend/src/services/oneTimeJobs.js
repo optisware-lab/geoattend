@@ -1,6 +1,9 @@
 const pool = require('../config/database');
 const { renumberStaff } = require('../utils/staffIds');
 const { formatName } = require('../utils/names');
+const {
+  freeInstitutionCode, freeAdminId, OLD_INSTITUTION_CODE, OLD_ADMIN_ID,
+} = require('../utils/institutionCodes');
 
 // Data changes that must run exactly once, right after the deploy that adds
 // them. Each runs in a transaction together with recording its key, so it
@@ -37,6 +40,61 @@ const JOBS = [
         fixed += 1;
       }
       return { fixed };
+    },
+  },
+  {
+    key: '2026-11-school-codes-initials',
+    // School codes INST-123456 -> school initials (RSS), admin IDs
+    // ADMIN3FA9C2 -> RSSADMIN. The old ones keep working, and phones and
+    // browsers swap in the new ones the next time they sign in.
+    async run(client) {
+      const schools = await client.query(
+        'SELECT id, name, institution_code, staff_id_prefix FROM institutions ORDER BY created_at'
+      );
+      const changes = [];
+      for (const school of schools.rows) {
+        let code = school.institution_code;
+        if (!code || OLD_INSTITUTION_CODE.test(code)) {
+          code = await freeInstitutionCode(client, school.name, {
+            staffIdPrefix: school.staff_id_prefix, exceptInstitutionId: school.id,
+          });
+          await client.query(
+            `UPDATE institutions SET institution_code = $2,
+               legacy_institution_codes = CASE WHEN $3::text IS NULL OR $3 = ANY(legacy_institution_codes)
+                 THEN legacy_institution_codes ELSE array_append(legacy_institution_codes, $3) END,
+               updated_at = NOW()
+             WHERE id = $1`,
+            [school.id, code, school.institution_code]
+          );
+          changes.push(`${school.name}: code ${school.institution_code} -> ${code}`);
+        }
+
+        const admins = await client.query(
+          `SELECT id, staff_id FROM staff WHERE institution_id = $1 AND role = 'admin'
+           ORDER BY created_at`,
+          [school.id]
+        );
+        for (const admin of admins.rows) {
+          if (!OLD_ADMIN_ID.test(admin.staff_id)) continue;
+          const newId = await freeAdminId(client, code);
+          await client.query(
+            `UPDATE staff SET staff_id = $2,
+               legacy_staff_ids = CASE WHEN $3 = ANY(legacy_staff_ids) THEN legacy_staff_ids
+                                       ELSE array_append(legacy_staff_ids, $3) END,
+               updated_at = NOW()
+             WHERE id = $1`,
+            [admin.id, newId, admin.staff_id]
+          );
+          await client.query(
+            `UPDATE institution_admin_credentials SET admin_staff_id = $3, updated_at = NOW()
+             WHERE institution_id = $1 AND admin_staff_id = $2`,
+            [school.id, admin.staff_id, newId]
+          );
+          changes.push(`${school.name}: admin ${admin.staff_id} -> ${newId}`);
+        }
+      }
+      changes.forEach((c) => console.log(`[One-time] ${c}`));
+      return { changes };
     },
   },
 ];

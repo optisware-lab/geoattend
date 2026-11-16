@@ -48,9 +48,9 @@ You'll be redirected to the Super Admin Dashboard where you can create new insti
 3. Click "Create Institution"
 
 **What happens automatically:**
-- ✅ Institution is created with a unique code (e.g., `INST-743261`)
+- ✅ Institution is created with a unique code (e.g., `RSS` for Rising Soul School; the admin ID is `RSSADMIN`)
 - ✅ Admin account is automatically created with:
-  - Random Staff ID (e.g., `ADMIN7f3a2b`)
+  - Admin ID from the school code (e.g., `RSSADMIN`)
   - Random password (e.g., `a3f9c12e`)
 - ✅ Default attendance rules are created
 - ✅ Trial subscription is activated
@@ -65,13 +65,13 @@ You'll be redirected to the Super Admin Dashboard where you can create new insti
 ### As Institution Admin:
 
 1. Receive credentials from super admin:
-   - Institution Code: `INST-743261`
-   - Staff ID: `ADMIN7f3a2b`
+   - Institution Code: `RSS`
+   - Admin ID: `RSSADMIN`
    - Password: `a3f9c12e`
 
 2. Go to admin dashboard login page
-3. **Enter Institution Code:** `INST-743261`
-4. Enter Staff ID: `ADMIN7f3a2b`
+3. **Enter Institution Code:** `RSS` (optional for admins)
+4. Enter Admin ID: `RSSADMIN` (remembered after the first login)
 5. Enter Password: `a3f9c12e`
 6. Click "Sign In"
 
