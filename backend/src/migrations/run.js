@@ -139,6 +139,9 @@ ALTER TABLE institutions ADD COLUMN IF NOT EXISTS staff_id_prefix VARCHAR(10);
 ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo BYTEA;
 ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMP;
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}';
+
+-- Accounts that aren't real staff (built-in admin login, vendor account) are left out of attendance
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS counts_in_attendance BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE staff ALTER COLUMN password_hash DROP NOT NULL;
 
 -- Ensure column sizes are correct (in case table was created with smaller sizes)

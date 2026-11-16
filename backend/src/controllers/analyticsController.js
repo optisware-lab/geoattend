@@ -7,7 +7,7 @@ exports.getAttendanceTrends = async (req, res) => {
     const { days = 30 } = req.query;
 
     const totalStaff = await req.tenantDb.query(
-      "SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true",
+      "SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND counts_in_attendance AND is_active = true",
       [institutionId]
     );
     const total = parseInt(totalStaff.rows[0].count);
@@ -19,7 +19,7 @@ exports.getAttendanceTrends = async (req, res) => {
         COUNT(DISTINCT CASE WHEN ar.is_late THEN ar.staff_uuid END) as late,
         ROUND(AVG(EXTRACT(EPOCH FROM (COALESCE(ar.check_out_time, NOW()) - ar.check_in_time)) / 3600)::numeric, 1) as avg_hours
       FROM attendance_records ar
-      JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff'
+      JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' AND s.counts_in_attendance
       WHERE ar.institution_id = $1 AND ar.date >= CURRENT_DATE - $2::INTEGER
       GROUP BY ar.date
       ORDER BY ar.date
@@ -70,7 +70,7 @@ exports.getTopAbsentees = async (req, res) => {
       FROM staff s
       LEFT JOIN attendance_records ar ON ar.staff_uuid = s.id
         AND ar.date >= CURRENT_DATE - $2::INTEGER
-      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
+      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true
       GROUP BY s.id, s.staff_id, s.first_name, s.last_name, s.department
       ORDER BY COUNT(ar.id) ASC
       LIMIT 20
@@ -109,7 +109,7 @@ exports.getDepartmentStats = async (req, res) => {
       FROM staff s
       LEFT JOIN attendance_records ar ON ar.staff_uuid = s.id
         AND ar.date >= CURRENT_DATE - $2::INTEGER
-      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true AND s.department IS NOT NULL
+      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true AND s.department IS NOT NULL
       GROUP BY s.department
       ORDER BY s.department
     `, [institutionId, parseInt(days)]);

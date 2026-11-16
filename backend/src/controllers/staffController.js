@@ -14,7 +14,7 @@ exports.getAllStaff = async (req, res) => {
     let query = `
       SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
              s.department, s.position, s.role, s.is_active, s.profile_photo_url, s.created_at,
-             s.hourly_rate, s.gender,
+             s.hourly_rate, s.gender, s.counts_in_attendance,
              (s.google_id IS NOT NULL) AS google_linked
       FROM staff s WHERE s.institution_id = $1 AND s.member_type = 'staff'`;
     const params = [institutionId];
@@ -80,7 +80,7 @@ exports.getStaffById = async (req, res) => {
     const result = await req.tenantDb.query(
       `SELECT s.id, s.staff_id, s.first_name, s.last_name, s.email, s.phone,
               s.department, s.position, s.role, s.is_active, s.profile_photo_url,
-              s.qr_code_data, s.hourly_rate, s.gender, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
+              s.qr_code_data, s.hourly_rate, s.gender, s.counts_in_attendance, s.created_at, s.updated_at, (s.google_id IS NOT NULL) AS google_linked
        FROM staff s WHERE s.id = $1 AND s.institution_id = $2`,
       [req.params.id, req.user.institution_id]
     );
@@ -155,6 +155,8 @@ exports.createStaff = async (req, res) => {
 exports.updateStaff = async (req, res) => {
   try {
     const { firstName, lastName, email, phone, department, position, role, isActive, hourlyRate } = req.body;
+    // true/false switches the account in or out of attendance counts; anything else leaves it
+    const countsSent = typeof req.body.countsInAttendance === 'boolean';
     const { id } = req.params;
     const institutionId = req.user.institution_id;
 
@@ -184,11 +186,12 @@ exports.updateStaff = async (req, res) => {
         is_active = COALESCE($8, is_active),
         hourly_rate = CASE WHEN $10 THEN $9::numeric ELSE hourly_rate END,
         gender = CASE WHEN $13 THEN $12::varchar ELSE gender END,
+        counts_in_attendance = CASE WHEN $15 THEN $14::boolean ELSE counts_in_attendance END,
         updated_at = NOW()
        WHERE id = $11
-       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, gender, updated_at`,
+       RETURNING id, staff_id, first_name, last_name, email, phone, department, position, role, is_active, hourly_rate, gender, counts_in_attendance, updated_at`,
       [formatName(firstName) || null, formatName(lastName) || null, email, phone, department, position, role, isActive, hourlyRateValue ?? null, hourlyRateValue !== undefined, id,
-       genderSent ? gender : null, genderSent]
+       genderSent ? gender : null, genderSent, countsSent ? req.body.countsInAttendance : null, countsSent]
     );
 
     res.json(result.rows[0]);

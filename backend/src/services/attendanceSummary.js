@@ -36,7 +36,7 @@ function displayName(s) {
 /** Staff, sign-ins, approved leave and work days for one institution. */
 async function loadAttendanceData(db, institutionId, { startDate, endDate, department, staffId } = {}) {
   const staffParams = [institutionId];
-  let staffWhere = "s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true";
+  let staffWhere = "s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true";
   if (department) { staffParams.push(department); staffWhere += ` AND s.department = $${staffParams.length}`; }
   if (staffId) { staffParams.push(`%${staffId}%`); staffWhere += ` AND s.staff_id ILIKE $${staffParams.length}`; }
 

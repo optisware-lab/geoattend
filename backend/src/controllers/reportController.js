@@ -60,24 +60,24 @@ exports.getDashboardStats = async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
 
     const [totalStaff, presentToday, lateToday, absentToday] = await Promise.all([
-      req.tenantDb.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [institutionId]),
+      req.tenantDb.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND counts_in_attendance AND is_active = true", [institutionId]),
       req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
-         WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff'`,
+         WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff' AND s.counts_in_attendance`,
         [institutionId, today]
       ),
       req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
-         WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff'`,
+         WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff' AND s.counts_in_attendance`,
         [institutionId, today]
       ),
       req.tenantDb.query(
         `SELECT COUNT(*) FROM staff s
-         WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
+         WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true
          AND s.id NOT IN (
            SELECT staff_uuid FROM attendance_records WHERE institution_id = $1 AND date = $2
          )`,
@@ -108,20 +108,20 @@ exports.getTodaySummary = async (req, res) => {
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
-         WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff'`,
+         WHERE ar.institution_id = $1 AND ar.date = $2 AND s.member_type = 'staff' AND s.counts_in_attendance`,
         [institutionId, today]
       ),
       req.tenantDb.query(
         `SELECT COUNT(DISTINCT ar.staff_uuid)
          FROM attendance_records ar
          JOIN staff s ON s.id = ar.staff_uuid
-         WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff'`,
+         WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true AND s.member_type = 'staff' AND s.counts_in_attendance`,
         [institutionId, today]
       ),
       req.tenantDb.query(
         `SELECT COUNT(*)
          FROM staff s
-         WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
+         WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true
            AND s.id NOT IN (
              SELECT staff_uuid FROM attendance_records WHERE institution_id = $1 AND date = $2
            )`,
@@ -207,7 +207,7 @@ exports.getAttendanceReport = async (req, res) => {
              s.staff_id, s.first_name, s.last_name, s.department, s.position
       FROM staff s
       LEFT JOIN attendance_records ar ON ${joinConditions}
-      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true`;
+      WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true`;
 
     if (department) {
       query += ` AND s.department = $${paramIndex}`;
@@ -329,10 +329,10 @@ exports.getWeeklySummary = async (req, res) => {
         ar.date,
         COUNT(DISTINCT ar.staff_uuid) as present,
         COUNT(DISTINCT CASE WHEN ar.is_late THEN ar.staff_uuid END) as late,
-        (SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true) as total_staff
+        (SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND counts_in_attendance AND is_active = true) as total_staff
        FROM attendance_records ar
        JOIN staff s ON s.id = ar.staff_uuid
-       WHERE ar.institution_id = $1 AND s.member_type = 'staff' AND ar.date >= CURRENT_DATE - INTERVAL '7 days'
+       WHERE ar.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND ar.date >= CURRENT_DATE - INTERVAL '7 days'
        GROUP BY ar.date
        ORDER BY ar.date`,
       [institutionId]

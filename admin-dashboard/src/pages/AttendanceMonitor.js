@@ -59,7 +59,8 @@ export default function AttendanceMonitor() {
     const inToday = new Set(records.map((r) => r.staff_uuid));
     const leaveToday = leaves.filter((l) => coversToday(l, today));
     const leaveByStaff = new Map(leaveToday.map((l) => [l.staff_uuid, l]));
-    const notIn = staff.filter((s) => !inToday.has(s.id));
+    // Accounts left out of attendance (built-in admin login, supplier) are never "not in"
+    const notIn = staff.filter((s) => !inToday.has(s.id) && s.counts_in_attendance !== false);
     return {
       all: records,
       onsite: records.filter((r) => !r.check_out_time),

@@ -249,6 +249,8 @@ async function runAutoMigration(client) {
     "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS legacy_institution_codes TEXT[] NOT NULL DEFAULT '{}'",
     // Raised on password change / "log out everywhere": older logins stop working
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0',
+    // Accounts that aren't real staff (built-in admin login, vendor account) are left out of attendance
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS counts_in_attendance BOOLEAN NOT NULL DEFAULT true',
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
     // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€

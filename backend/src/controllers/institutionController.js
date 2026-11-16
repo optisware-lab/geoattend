@@ -46,8 +46,8 @@ async function createInitialAdminCredentials(institutionId, providedPassword, cl
   const qrData = `STAFF-${institutionId}-${staffId}`;
 
   await client.query(
-    `INSERT INTO staff (institution_id, staff_id, first_name, last_name, password_hash, qr_code_data, role, member_type)
-     VALUES ($1, $2, 'Admin', 'User', $3, $4, 'admin', 'staff')`,
+    `INSERT INTO staff (institution_id, staff_id, first_name, last_name, password_hash, qr_code_data, role, member_type, counts_in_attendance)
+     VALUES ($1, $2, 'Admin', 'User', $3, $4, 'admin', 'staff', false)`,
     [institutionId, staffId, passwordHash, qrData]
   );
 

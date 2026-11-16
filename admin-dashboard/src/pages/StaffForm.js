@@ -36,7 +36,7 @@ export default function StaffForm() {
 
   const [form, setForm] = useState({
     staffId: '', firstName: '', lastName: '', email: '', phone: '',
-    department: '', position: '', role: 'staff', password: '', isActive: true,
+    department: '', position: '', role: 'staff', password: '', isActive: true, countsInAttendance: true,
     hourlyRate: '', gender: '',
   });
   const [qrCode, setQrCode] = useState(null);
@@ -60,6 +60,7 @@ export default function StaffForm() {
           staffId: s.staff_id, firstName: s.first_name, lastName: s.last_name,
           email: s.email || '', phone: s.phone || '', department: s.department || '',
           position: s.position || '', role: s.role, password: '', isActive: s.is_active,
+          countsInAttendance: s.counts_in_attendance !== false,
           hourlyRate: s.hourly_rate !== null && s.hourly_rate !== undefined ? s.hourly_rate : '',
           gender: s.gender || '',
         });
@@ -174,6 +175,19 @@ export default function StaffForm() {
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                   <input type="checkbox" name="isActive" checked={form.isActive} onChange={handleChange} />
                   <span style={{ fontSize: '14px' }}>Active</span>
+                </label>
+              </div>
+            )}
+            {isEdit && (
+              <div style={{ ...styles.field, gridColumn: '1 / -1' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                  <input type="checkbox" name="countsInAttendance" checked={form.countsInAttendance} onChange={handleChange} style={{ marginTop: 3 }} />
+                  <span style={{ fontSize: '14px' }}>
+                    Count in attendance
+                    <span style={{ display: 'block', fontSize: 12, color: '#95a5a6', marginTop: 2 }}>
+                      Untick for accounts that aren&apos;t real staff (e.g. a shared admin login or a supplier&apos;s account), so they aren&apos;t counted as absent in reports, the dashboard and alerts.
+                    </span>
+                  </span>
                 </label>
               </div>
             )}

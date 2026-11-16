@@ -137,7 +137,7 @@ async function detectAbsences() {
       const absent = await pool.query(`
         SELECT s.id, s.staff_id, s.first_name, s.last_name, s.department, s.email, s.phone
         FROM staff s
-        WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
+        WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.counts_in_attendance AND s.is_active = true
           AND s.id NOT IN (SELECT staff_uuid FROM attendance_records WHERE institution_id = $1 AND date = $2)
           AND s.id NOT IN (
             SELECT staff_uuid FROM leave_requests
@@ -188,9 +188,9 @@ async function sendDailyReport() {
 
     for (const inst of institutions.rows) {
       const [totalResult, presentResult, lateResult, autoCheckoutResult, overtimeResult] = await Promise.all([
-        pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [inst.id]),
-        pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' WHERE ar.institution_id = $1 AND ar.date = $2", [inst.id, today]),
-        pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true", [inst.id, today]),
+        pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND counts_in_attendance AND is_active = true", [inst.id]),
+        pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' AND s.counts_in_attendance WHERE ar.institution_id = $1 AND ar.date = $2", [inst.id, today]),
+        pool.query("SELECT COUNT(DISTINCT ar.staff_uuid) FROM attendance_records ar JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' AND s.counts_in_attendance WHERE ar.institution_id = $1 AND ar.date = $2 AND ar.is_late = true", [inst.id, today]),
         // Staff who didn't sign out themselves (closed by the system or still open)
         pool.query("SELECT COUNT(*) FROM attendance_records WHERE institution_id = $1 AND date = $2 AND (check_out_time IS NULL OR notes LIKE '%Auto check-out%' OR notes LIKE '%Auto sign-out%')", [inst.id, today]),
         pool.query('SELECT COUNT(*) FROM overtime_records WHERE institution_id = $1 AND date = $2', [inst.id, today]).catch(() => ({ rows: [{ count: 0 }] })),
@@ -229,7 +229,7 @@ async function sendWeeklyReport() {
     const institutions = await pool.query('SELECT id, name FROM institutions');
 
     for (const inst of institutions.rows) {
-      const totalStaff = await pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND is_active = true", [inst.id]);
+      const totalStaff = await pool.query("SELECT COUNT(*) FROM staff WHERE institution_id = $1 AND member_type = 'staff' AND counts_in_attendance AND is_active = true", [inst.id]);
       const total = parseInt(totalStaff.rows[0].count);
 
       const weekData = await pool.query(`
@@ -237,7 +237,7 @@ async function sendWeeklyReport() {
           COUNT(DISTINCT ar.staff_uuid) as present,
           COUNT(DISTINCT CASE WHEN ar.is_late THEN ar.staff_uuid END) as late
         FROM attendance_records ar
-        JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff'
+        JOIN staff s ON s.id = ar.staff_uuid AND s.member_type = 'staff' AND s.counts_in_attendance
         WHERE ar.institution_id = $1 AND ar.date >= CURRENT_DATE - INTERVAL '7 days' AND ar.date <= CURRENT_DATE
         GROUP BY ar.date ORDER BY ar.date
       `, [inst.id]);
@@ -278,7 +278,7 @@ async function autoSuspendInactive() {
       FROM staff s
       WHERE s.is_active = true
         AND s.role = 'staff'
-        AND s.member_type = 'staff'
+        AND s.member_type = 'staff' AND s.counts_in_attendance
         AND s.id NOT IN (
           SELECT DISTINCT staff_uuid FROM attendance_records
           WHERE date >= CURRENT_DATE - $1::INTEGER

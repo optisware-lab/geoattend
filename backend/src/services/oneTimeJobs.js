@@ -97,6 +97,22 @@ const JOBS = [
       return { changes };
     },
   },
+  {
+    key: '2026-11-leave-non-staff-out-of-attendance',
+    // The built-in "Admin User" login of each school and the Optisware
+    // (vendor) account never sign in, so they made every school's absence
+    // totals look worse. Admins can switch any account back on the Staff page.
+    async run(client) {
+      const r = await client.query(
+        `UPDATE staff SET counts_in_attendance = false
+         WHERE counts_in_attendance = true
+           AND ((role = 'admin' AND first_name = 'Admin' AND last_name = 'User')
+             OR (first_name || ' ' || COALESCE(last_name, '')) ILIKE 'optisware%')
+         RETURNING staff_id, first_name, last_name`
+      );
+      return { leftOut: r.rows.map((s) => `${s.first_name} ${s.last_name || ''}`.trim() + ` (${s.staff_id})`) };
+    },
+  },
 ];
 
 async function runOneTimeJobs() {

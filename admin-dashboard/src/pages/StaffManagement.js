@@ -268,6 +268,9 @@ export default function StaffManagement() {
               <td style={styles.td}>
                 {s.first_name} {s.last_name}
                 {s.google_linked && <span style={styles.googleBadge} title="Signs in with Google">Google</span>}
+                {s.counts_in_attendance === false && (
+                  <span style={{ ...styles.googleBadge, background: '#eef1f4', color: '#5d6d7e' }} title="Left out of attendance reports, the dashboard and absence alerts">Not counted</span>
+                )}
               </td>
               <td style={styles.td}>{s.gender === 'male' ? 'Male' : s.gender === 'female' ? 'Female' : <span style={{ color: '#bdc3c7' }}>Not set</span>}</td>
               <td style={styles.td}>{s.department || '-'}</td>

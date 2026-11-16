@@ -55,7 +55,7 @@ async function repairInstitution(inst, client) {
 
       await client.query(
         `INSERT INTO staff (institution_id, staff_id, first_name, last_name, password_hash, qr_code_data, role, member_type)
-         VALUES ($1, $2, 'Admin', 'User', $3, $4, 'admin', 'staff')`,
+         VALUES ($1, $2, 'Admin', 'User', $3, $4, 'admin', 'staff')`, // counts_in_attendance is switched off by the one-time job
         [inst.id, staffId, passwordHash, qrData]
       );
 
