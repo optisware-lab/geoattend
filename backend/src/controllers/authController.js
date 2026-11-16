@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
-const { signSessionToken } = require('../utils/authToken');
+const { signSessionToken, optionsFromClaims } = require('../utils/authToken');
 const { nextStaffId, prefixFor, hasPrefix } = require('../utils/staffIds');
 const { freeAdminId } = require('../utils/institutionCodes');
 const { formatName } = require('../utils/names');
@@ -36,7 +36,7 @@ async function getSubscriptionPayloadSafe(institutionId) {
 
 const loginHandler = async (req, res) => {
   try {
-    const { staffId, password, institutionCode, deviceId, deviceModel, osVersion } = req.body;
+    const { staffId, password, institutionCode, deviceId, deviceModel, osVersion, dashboard, remember } = req.body;
     const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
 
     if (!staffId || !password) {
@@ -110,7 +110,7 @@ const loginHandler = async (req, res) => {
       normalizedInstitutionCode ||
       null;
 
-    res.json(await buildAuthPayload(staff, institutionCodeOut));
+    res.json(await buildAuthPayload(staff, institutionCodeOut, { dashboard: dashboard === true, remember: remember === true }));
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Server error', debug: err.message });
@@ -129,8 +129,8 @@ function logDevice(staffUuid, { deviceId, deviceModel, osVersion }, action, ipAd
 }
 
 /** Token + user/institution/subscription payload returned by every login route. */
-async function buildAuthPayload(staff, institutionCode) {
-  const token = signSessionToken(staff);
+async function buildAuthPayload(staff, institutionCode, tokenOptions) {
+  const token = signSessionToken(staff, tokenOptions);
 
   const subscription = await getSubscriptionPayloadSafe(staff.institution_id);
 
@@ -527,16 +527,26 @@ exports.changePassword = async (req, res) => {
     }
 
     const newHash = await bcrypt.hash(newPassword, 12);
-    await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [newHash, req.user.id]);
+    // A new password ends every other login (a lost laptop, a shared PC).
+    // This device gets a fresh token so it stays logged in.
+    const updated = await req.tenantDb.query(
+      `UPDATE staff SET password_hash = $1, token_version = token_version + 1, updated_at = NOW()
+       WHERE id = $2 RETURNING token_version`,
+      [newHash, req.user.id]
+    );
+    const token = signSessionToken(
+      { ...req.user, token_version: updated.rows[0].token_version },
+      optionsFromClaims(req.tokenClaims)
+    );
 
-    // Clear any stored plaintext credential for this institution so the super admin
-    // can no longer hand out a stale password; they must reset it from the dashboard.
+    // If this is the school's admin, forget the password the super admin saved
+    // for them, so a stale one is never handed out; it can be reset from the dashboard.
     await req.tenantDb.query(
-      'DELETE FROM institution_admin_credentials WHERE institution_id = $1',
-      [req.user.institution_id]
+      'DELETE FROM institution_admin_credentials WHERE institution_id = $1 AND admin_staff_id = $2',
+      [req.user.institution_id, req.user.staff_id]
     ).catch(() => {});
 
-    res.json({ message: 'Password changed successfully' });
+    res.json({ message: 'Password changed. You were logged out on every other device.', token });
   } catch (err) {
     console.error('Change password error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -571,7 +581,8 @@ const forgotPasswordHandler = async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, 12);
-    await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [hash, result.rows[0].id]);
+    // The new password also ends every existing login of this account
+    await req.tenantDb.query('UPDATE staff SET password_hash = $1, token_version = token_version + 1, updated_at = NOW() WHERE id = $2', [hash, result.rows[0].id]);
 
     res.json({ message: 'Password reset successfully. You can now login with your new password.' });
   } catch (err) {
@@ -689,10 +700,32 @@ exports.refreshToken = async (req, res) => {
   try {
     // req.user is the current database row, so a changed role or institution
     // is picked up, and deactivated accounts never get here.
-    const token = signSessionToken(req.user);
+    const token = signSessionToken(req.user, optionsFromClaims(req.tokenClaims));
     res.json({ token });
   } catch (err) {
     sendServerError(res, 'refresh', err, req);
+  }
+};
+
+// "Log out all other devices": every login of this account ends except this
+// one, which gets a fresh token.
+exports.logoutOtherDevices = async (req, res) => {
+  try {
+    const updated = await req.tenantDb.query(
+      'UPDATE staff SET token_version = token_version + 1, updated_at = NOW() WHERE id = $1 RETURNING token_version',
+      [req.user.id]
+    );
+    const token = signSessionToken(
+      { ...req.user, token_version: updated.rows[0].token_version },
+      optionsFromClaims(req.tokenClaims)
+    );
+    logAudit({
+      institutionId: req.user.institution_id, action: 'logout_other_devices', entityType: 'staff',
+      entityId: req.user.id, performedBy: req.user.staff_id, ipAddress: req.ip,
+    });
+    res.json({ message: 'Logged out on every other device.', token });
+  } catch (err) {
+    sendServerError(res, 'logout-others', err, req);
   }
 };
 

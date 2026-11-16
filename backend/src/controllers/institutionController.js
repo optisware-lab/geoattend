@@ -811,7 +811,11 @@ exports.createOrResetAdminCredentials = async (req, res) => {
 
     if (existing.rows.length > 0) {
       staffId = existing.rows[0].staff_id;
-      await req.tenantDb.query('UPDATE staff SET password_hash = $1, updated_at = NOW() WHERE id = $2', [passwordHash, existing.rows[0].id]);
+      // A reset also logs the admin out on every computer
+      await req.tenantDb.query(
+        'UPDATE staff SET password_hash = $1, token_version = token_version + 1, updated_at = NOW() WHERE id = $2',
+        [passwordHash, existing.rows[0].id]
+      );
       await storeAdminCredentials(id, staffId, rawPassword, req.tenantDb);
     } else {
       const created = await createInitialAdminCredentials(id, rawPassword, req.tenantDb);

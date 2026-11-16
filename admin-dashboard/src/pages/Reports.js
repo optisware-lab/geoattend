@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { authSession } from '../services/api';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import { FiDownload, FiFileText, FiFilter, FiAlertTriangle, FiShare2, FiPrinter, FiCalendar } from 'react-icons/fi';
@@ -315,7 +316,7 @@ export default function Reports() {
     const printTab = format === 'print' ? window.open('', '_blank') : null;
     setExporting(format);
     try {
-      const token = localStorage.getItem('token');
+      const token = authSession.token();
       const res = await fetch(`${API_BASE_URL}/reports/export/${path}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(await errorMessage(res));
       const blob = await res.blob();

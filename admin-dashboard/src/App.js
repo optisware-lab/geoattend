@@ -21,6 +21,7 @@ import AuditLog from './pages/AuditLog';
 import Payroll from './pages/Payroll';
 import Sidebar from './components/Sidebar';
 import { useIsMobile } from './components/ui';
+import { authSession, refreshSession } from './services/api';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -28,22 +29,27 @@ function App() {
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    const stored = localStorage.getItem('user');
+    const stored = authSession.user();
     if (stored) {
-      setUser(JSON.parse(stored));
+      setUser(stored);
+      // "Keep me logged in": each visit renews the 30 days, so an admin who
+      // uses the dashboard at least once a month never has to log in again
+      if (authSession.remembered()) {
+        refreshSession().then(({ data }) => authSession.replaceToken(data?.token)).catch(() => {});
+      }
+    } else {
+      authSession.clear(); // closed browser without "keep me logged in"
     }
     setLoading(false);
   }, []);
 
   const handleLogin = (userData) => {
     setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    authSession.clear();
   };
 
   // Only declare mainStyle ONCE

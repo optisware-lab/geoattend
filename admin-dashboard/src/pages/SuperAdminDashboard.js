@@ -1,4 +1,5 @@
 import React from 'react';
+import { authSession } from '../services/api';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { FiList, FiPlusCircle, FiShield, FiTrendingUp, FiLogOut, FiMapPin } from 'react-icons/fi';
 import { useIsMobile } from '../components/ui';
@@ -17,7 +18,7 @@ export default function SuperAdminDashboard({ onLogout }) {
   const user = (() => { try { return JSON.parse(localStorage.getItem('user')) || {}; } catch { return {}; } })();
 
   const handleSignOut = () => {
-    try { localStorage.removeItem('token'); localStorage.removeItem('user'); } catch (e) { /* ignore */ }
+    authSession.clear();
     if (typeof onLogout === 'function') onLogout();
     navigate('/login');
   };

@@ -31,7 +31,9 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
     // The signature is always checked. Only the refresh route accepts a token
     // that ran out recently, so the apps can renew it instead of logging out.
     decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: allowRecentlyExpired });
-    if (allowRecentlyExpired && decoded.exp && decoded.exp * 1000 + REFRESH_GRACE_MS < Date.now()) {
+    // Admin dashboard logins get no grace: once they run out they are over
+    const grace = decoded.dash ? 0 : REFRESH_GRACE_MS;
+    if (allowRecentlyExpired && decoded.exp && decoded.exp * 1000 + grace < Date.now()) {
       return res.status(401).json({ error: 'Token expired' });
     }
   } catch (err) {
@@ -76,12 +78,22 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
 
     stage = 'auth-user';
     const result = await client.query(
-      'SELECT id, institution_id, staff_id, first_name, last_name, email, role, member_type, is_active FROM staff WHERE id = $1',
+      // token_version read via jsonb so a request during a deploy, before the
+      // column is added, still works (it then counts as 0)
+      `SELECT id, institution_id, staff_id, first_name, last_name, email, role, member_type, is_active,
+              COALESCE((to_jsonb(staff) ->> 'token_version')::int, 0) AS token_version
+       FROM staff WHERE id = $1`,
       [decoded.userId]
     );
 
     if (result.rows.length === 0 || !result.rows[0].is_active) {
       return res.status(401).json({ error: 'Invalid or inactive account' });
+    }
+
+    // The password was changed, or "Log out all other devices" was used,
+    // after this login: it no longer counts
+    if ((Number(decoded.tv) || 0) !== Number(result.rows[0].token_version)) {
+      return res.status(401).json({ error: 'You were logged out. Please log in again.' });
     }
 
     // Staff-only system: legacy student accounts can no longer use the API
@@ -98,6 +110,7 @@ const makeAuthenticate = ({ allowRecentlyExpired = false } = {}) => async (req, 
     });
 
     req.user = result.rows[0];
+    req.tokenClaims = decoded;
     req.tenantDb = client;
     return next();
   } catch (err) {

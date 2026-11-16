@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
-import { login, register } from '../services/api';
+import { login, register, authSession } from '../services/api';
 import { FiMapPin, FiUser, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
 
 const styles = {
@@ -81,6 +81,10 @@ export default function Login({ onLogin }) {
   const [staffId, setStaffId] = useState(localStorage.getItem('adminLastId') || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  // On by default; untick on a shared computer
+  const [remember, setRemember] = useState(() => {
+    try { return localStorage.getItem('adminRemember') !== 'no'; } catch { return true; }
+  });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -94,7 +98,7 @@ export default function Login({ onLogin }) {
     try {
       const codeTrim = institutionCode.trim().toUpperCase();
       // An Admin ID (e.g. RSSADMIN) is enough on its own; the school code is optional
-      const { data } = await login(staffId.trim().toUpperCase(), password, codeTrim || undefined);
+      const { data } = await login(staffId.trim().toUpperCase(), password, codeTrim || undefined, remember);
 
       if (data.user.role !== 'admin' && data.user.role !== 'super_admin') {
         toast.error('Admin access required');
@@ -102,7 +106,8 @@ export default function Login({ onLogin }) {
         return;
       }
 
-      localStorage.setItem('token', data.token);
+      authSession.start(data.token, data.user, remember);
+      try { localStorage.setItem('adminRemember', remember ? 'yes' : 'no'); } catch { /* ignore */ }
       // Remember the school code and Admin ID the server returns (renamed ones
       // like INST-123456 -> RSS are swapped in), so next time they are filled in
       const resolvedCode = data.institution?.code || codeTrim;
@@ -179,6 +184,13 @@ export default function Login({ onLogin }) {
               {showPassword ? <FiEyeOff size={18} /> : <FiEye size={18} />}
             </button>
           </div>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#2c3e50', margin: '-4px 0 14px', cursor: 'pointer', lineHeight: 1.4 }}>
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16 }} />
+            <span>
+              Keep me logged in on this computer for 30 days
+              <span style={{ display: 'block', fontSize: 12, color: '#7f8c8d' }}>Untick on a shared or public computer.</span>
+            </span>
+          </label>
           <button style={{ ...styles.button, opacity: loading ? 0.7 : 1 }} disabled={loading} type="submit">
             {loading ? 'Logging in...' : 'Log In'}
           </button>

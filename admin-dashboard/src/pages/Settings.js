@@ -4,6 +4,7 @@ import { FiSave, FiMapPin, FiCrosshair, FiPrinter, FiDownload, FiShare2, FiRefre
 import { getInstitution, updateInstitution, getAttendanceRules, updateAttendanceRules, getInstitutionQR, rotateInstitutionQR } from '../services/api';
 import StaffIdSettings from './StaffIdSettings';
 import LogoSettings from './LogoSettings';
+import SecuritySettings from './SecuritySettings';
 import { currentInstitutionId, logoUrl } from '../components/InstitutionLogo';
 
 const styles = {
@@ -296,6 +297,8 @@ export default function Settings() {
       </div>
 
       <StaffIdSettings />
+
+      <SecuritySettings />
     </div>
   );
 }

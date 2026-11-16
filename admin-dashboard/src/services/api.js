@@ -17,9 +17,38 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Where the login is kept. "Keep me logged in on this computer" ticked:
+// localStorage, so it survives closing the browser (30 days for school
+// admins). Not ticked: sessionStorage, so closing the browser logs out.
+const read = (store, key) => { try { return store.getItem(key); } catch { return null; } };
+const write = (store, key, value) => { try { store.setItem(key, value); } catch { /* storage blocked */ } };
+const remove = (key) => [window.localStorage, window.sessionStorage].forEach((st) => { try { st.removeItem(key); } catch { /* ignore */ } });
+
+export const authSession = {
+  token: () => read(window.sessionStorage, 'token') || read(window.localStorage, 'token'),
+  remembered: () => !read(window.sessionStorage, 'token') && Boolean(read(window.localStorage, 'token')),
+  // The user's name etc. always sit in localStorage (pages read it there);
+  // without a token they are cleared on the next visit.
+  user: () => {
+    if (!authSession.token()) return null;
+    try { return JSON.parse(read(window.localStorage, 'user')); } catch { return null; }
+  },
+  start(token, user, remember) {
+    remove('token'); remove('user');
+    write(remember ? window.localStorage : window.sessionStorage, 'token', token);
+    if (user) write(window.localStorage, 'user', JSON.stringify(user));
+  },
+  /** Swap in a renewed token, kept where the current one is. */
+  replaceToken(token) {
+    if (!token) return;
+    write(authSession.remembered() ? window.localStorage : window.sessionStorage, 'token', token);
+  },
+  clear() { remove('token'); remove('user'); },
+};
+
 // Attach token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = authSession.token();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -37,8 +66,7 @@ api.interceptors.response.use(
       url.includes('/auth/forgot-password');
 
     if (error.response?.status === 401 && !isAuthAttempt) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      authSession.clear();
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -46,13 +74,16 @@ api.interceptors.response.use(
 );
 
 // Auth — omit institutionCode when empty so backend can resolve super_admin (e.g. ADMIN001) across institutions
-export const login = (staffId, password, institutionCode) => {
-  const body = { staffId, password };
+export const login = (staffId, password, institutionCode, remember = false) => {
+  const body = { staffId, password, dashboard: true, remember: Boolean(remember) };
   const code = institutionCode && String(institutionCode).trim();
   if (code) body.institutionCode = code.toUpperCase();
   return api.post('/auth/login', body);
 };
 export const getProfile = () => api.get('/auth/profile');
+export const refreshSession = () => api.post('/auth/refresh-token');
+export const changeMyPassword = (currentPassword, newPassword) => api.put('/auth/change-password', { currentPassword, newPassword });
+export const logoutOtherDevices = () => api.post('/auth/logout-other-devices');
 export const createInitialAdmin = (data) => api.post('/auth/create-initial-admin', data);
 
 // Staff

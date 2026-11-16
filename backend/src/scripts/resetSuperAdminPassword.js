@@ -50,7 +50,7 @@ async function reset(client) {
 
   const hash = await bcrypt.hash(newPassword, 12);
   const updated = await client.query(
-    `UPDATE staff SET password_hash = $1, is_active = true, updated_at = NOW()
+    `UPDATE staff SET password_hash = $1, is_active = true, token_version = token_version + 1, updated_at = NOW()
      WHERE staff_id = $2 AND role IN ('admin', 'super_admin')`,
     [hash, staffId]
   );

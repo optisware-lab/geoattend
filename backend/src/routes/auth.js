@@ -12,6 +12,7 @@ router.post('/refresh-token', authenticateForRefresh, authController.refreshToke
 router.post('/push-token', authenticate, authController.savePushToken);
 router.get('/profile', authenticate, authController.getProfile);
 router.put('/change-password', authenticate, authController.changePassword);
+router.post('/logout-other-devices', authenticate, authController.logoutOtherDevices);
 
 // Super-admin helper: create initial admin for an institution
 router.post('/create-initial-admin', authenticate, requireSuperAdmin, authController.createInitialAdmin);

@@ -9,6 +9,7 @@ import * as Updates from 'expo-updates';
 import * as ImagePicker from 'expo-image-picker';
 import { getProfile, changePassword, SESSION_KEYS } from '../services/api';
 import { getQueueLength } from '../services/offlineQueue';
+import { getCredentials, saveCredentials } from '../services/credentials';
 import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
 import { useI18n } from '../services/i18n';
@@ -150,7 +151,12 @@ export default function ProfileScreen({ navigation, onLogout }) {
 
     setLoading(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      const { data } = await changePassword(currentPassword, newPassword);
+      // A new password logs out every other device; this phone gets a fresh login
+      if (data?.token) await AsyncStorage.setItem('token', data.token);
+      // Keep the saved password for the login screen in step
+      const saved = await getCredentials().catch(() => null);
+      if (saved?.identifier && saved.identifier === profile?.staff_id) await saveCredentials({ identifier: saved.identifier, password: newPassword }).catch(() => {});
       toast.success('Password changed successfully');
       setShowPasswordForm(false);
       setCurrentPassword('');
