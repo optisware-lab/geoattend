@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  session, staffLogin, googleAuth, completeGoogleSignup, registerStaff, forgotPassword, forgotStaffId, errorMessage, renewSession,
+  session, staffLogin, googleAuth, completeGoogleSignup, registerStaff, forgotPassword, sendResetCode, forgotStaffId, errorMessage, renewSession,
 } from './staffApi';
 import GoogleButton from './GoogleButton';
 import StaffHome from './StaffHome';
@@ -280,21 +280,41 @@ function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
   const [code, setCode] = useState(initialCode);
   const [staffId, setStaffId] = useState(initialStaffId);
   const [email, setEmail] = useState('');
+  // Step 2 starts once the 6-digit code has been emailed
+  const [codeSent, setCodeSent] = useState(false);
+  const [resetCode, setResetCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const sendCode = async (e) => {
+    if (e) e.preventDefault();
+    if (!code.trim() || !staffId.trim() || !email.trim()) { setError('Enter your institution code, Staff ID and email.'); return; }
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await sendResetCode(code.trim().toUpperCase(), staffId.trim().toUpperCase(), email.trim());
+      setNotice(data?.message || 'We emailed you a 6-digit code.');
+      setCodeSent(true);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not send the code. Please try again.'));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!code.trim() || !staffId.trim() || !email.trim()) { setError('Enter your institution code, Staff ID and email.'); return; }
+    if (!/^\d{6}$/.test(resetCode.trim())) { setError('Enter the 6-digit code from the email.'); return; }
     if (password.length < 6) { setError('New password must be at least 6 characters.'); return; }
     if (password !== confirm) { setError('Passwords do not match.'); return; }
     setBusy(true);
     setError('');
     try {
-      await forgotPassword(code.trim().toUpperCase(), staffId.trim().toUpperCase(), email.trim(), password);
-      onDone(staffId.trim().toUpperCase(), 'Password changed. Log in with your new password.');
+      const { data } = await forgotPassword(code.trim().toUpperCase(), staffId.trim().toUpperCase(), email.trim(), resetCode.trim(), password);
+      onDone(data?.staffId || staffId.trim().toUpperCase(), 'Password changed. Log in with your new password.');
     } catch (err) {
       setError(errorMessage(err, 'Could not reset your password. Please try again.'));
     } finally {
@@ -302,16 +322,36 @@ function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
     }
   };
 
+  if (!codeSent) {
+    return (
+      <form style={s.card} onSubmit={sendCode}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>Reset your password</div>
+        <p style={{ ...s.muted, margin: '6px 0 16px' }}>We will email a 6-digit code to the email on your GeoAttend account. Signed up with Google? Just use Continue with Google instead.</p>
+        <label style={s.label} htmlFor="f-code">Institution Code</label>
+        <input id="f-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" />
+        <label style={s.label} htmlFor="f-staffid">Staff ID</label>
+        <input id="f-staffid" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)} autoCapitalize="characters" autoComplete="username" />
+        <label style={s.label} htmlFor="f-email">Email</label>
+        <input id="f-email" style={s.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        <button type="submit" style={{ ...s.primary, opacity: busy ? 0.7 : 1 }} disabled={busy}>
+          {busy ? 'Sending...' : 'Email me a code'}
+        </button>
+        {error && <div style={s.banner('error')}>{error}</div>}
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <button type="button" style={textLink} onClick={onBack}>Back to log in</button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <form style={s.card} onSubmit={submit}>
-      <div style={{ fontSize: 18, fontWeight: 700 }}>Reset your password</div>
-      <p style={{ ...s.muted, margin: '6px 0 16px' }}>Enter the email on your GeoAttend account. Signed up with Google? Just use Continue with Google instead.</p>
-      <label style={s.label} htmlFor="f-code">Institution Code</label>
-      <input id="f-code" style={s.input} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" />
-      <label style={s.label} htmlFor="f-staffid">Staff ID</label>
-      <input id="f-staffid" style={s.input} value={staffId} onChange={(e) => setStaffId(e.target.value)} autoCapitalize="characters" autoComplete="username" />
-      <label style={s.label} htmlFor="f-email">Email</label>
-      <input id="f-email" style={s.input} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+      <div style={{ fontSize: 18, fontWeight: 700 }}>Enter the code</div>
+      {notice && <div style={{ ...s.banner('success'), marginTop: 10 }}>{notice}</div>}
+      <label style={s.label} htmlFor="f-resetcode">6-digit code</label>
+      <input id="f-resetcode" style={{ ...s.input, letterSpacing: 6, fontSize: 20, fontWeight: 700 }} value={resetCode}
+        onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+        inputMode="numeric" autoComplete="one-time-code" placeholder="000000" />
       <label style={s.label} htmlFor="f-pass">New password</label>
       <input id="f-pass" style={s.input} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" autoComplete="new-password" />
       <label style={s.label} htmlFor="f-confirm">Confirm new password</label>
@@ -320,7 +360,8 @@ function ForgotPasswordForm({ initialCode, initialStaffId, onDone, onBack }) {
         {busy ? 'Saving...' : 'Reset Password'}
       </button>
       {error && <div style={s.banner('error')}>{error}</div>}
-      <div style={{ textAlign: 'center', marginTop: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, flexWrap: 'wrap', gap: 4 }}>
+        <button type="button" style={textLink} disabled={busy} onClick={() => sendCode()}>Send a new code</button>
         <button type="button" style={textLink} onClick={onBack}>Back to log in</button>
       </div>
     </form>

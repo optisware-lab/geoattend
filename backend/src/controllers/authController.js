@@ -10,6 +10,7 @@ const pool = require('../config/database');
 const crypto = require('crypto');
 const { OAuth2Client } = require('google-auth-library');
 const { logAudit } = require('../middleware/audit');
+const { sendEmail } = require('../services/emailService');
 const {
   normalizeInstitutionCode,
   getInstitutionByCode,
@@ -553,38 +554,156 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-const forgotPasswordHandler = async (req, res) => {
-  try {
-    const { staffId, email, newPassword, institutionCode } = req.body;
-    const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
+// ========== FORGOT PASSWORD (code sent by email) ==========
+// Step 1: the person gives their school code, Staff ID and email. If they
+// match an account, a 6-digit code is emailed to that address. Step 2: they
+// type the code and a new password. Without the email inbox nobody can reset
+// someone else's password.
 
-    if (!staffId || !email || !newPassword || !normalizedInstitutionCode) {
-      return res.status(400).json({ error: 'Staff ID, email, new password, and institution code are required' });
+const RESET_CODE_MINUTES = 15;
+const RESET_CODE_MAX_TRIES = 5;
+const RESET_CODE_RESEND_SECONDS = 60;
+const RESET_SENT_MESSAGE =
+  'If the Staff ID and email match an account, we have emailed a 6-digit code to that address. Check your inbox (and spam folder); it can take a minute.';
+const NO_EMAIL_MESSAGE =
+  "We can't email reset codes right now. Ask your school administrator to reset your password in the GeoAttend dashboard.";
+
+function emailReady() {
+  return Boolean(process.env.SMTP_HOST);
+}
+
+/** Codes are stored as a keyed hash, never as typed. */
+function hashResetCode(staffUuid, code) {
+  return crypto.createHmac('sha256', String(process.env.JWT_SECRET || 'geoattend'))
+    .update(`${staffUuid}:${String(code).trim()}`)
+    .digest('hex');
+}
+
+/** The active account matching school code + Staff ID + email, or null. */
+async function findResetAccount(db, { institutionCode, staffId, email }) {
+  const normalizedInstitutionCode = normalizeInstitutionCode(institutionCode);
+  if (!normalizedInstitutionCode || !staffId || !email) return null;
+  const institution = await getInstitutionByCode(normalizedInstitutionCode);
+  if (!institution) return null;
+  const result = await db.query(
+    `SELECT s.id, s.staff_id, s.first_name, s.email, s.reset_code_hash, s.reset_code_expires_at,
+            s.reset_code_attempts, s.reset_code_sent_at, i.name AS institution_name
+     FROM staff s JOIN institutions i ON i.id = s.institution_id
+     WHERE (s.staff_id = $1 OR $1 = ANY(s.legacy_staff_ids)) AND LOWER(s.email) = $2
+       AND s.member_type = 'staff' AND s.institution_id = $3 AND s.is_active = true
+     ORDER BY (s.staff_id = $1) DESC LIMIT 1`,
+    [String(staffId).trim().toUpperCase(), String(email).trim().toLowerCase(), institution.id]
+  );
+  return result.rows[0] || null;
+}
+
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const escapeHtml = (v) => String(v || '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+
+const sendResetCodeHandler = async (req, res) => {
+  try {
+    const { institutionCode, staffId, email } = req.body;
+    if (!normalizeInstitutionCode(institutionCode) || !staffId || !email) {
+      return res.status(400).json({ error: 'Enter your school code, Staff ID and email.' });
+    }
+    if (!emailReady()) {
+      return res.status(503).json({ error: NO_EMAIL_MESSAGE, noEmail: true });
     }
 
-    if (newPassword.length < 6) {
+    const account = await findResetAccount(req.tenantDb, { institutionCode, staffId, email });
+    // Same answer whether or not the details match, so nobody can use this
+    // to find out which emails belong to which Staff IDs.
+    if (!account) return res.json({ message: RESET_SENT_MESSAGE });
+
+    const sentAgo = account.reset_code_sent_at
+      ? (Date.now() - new Date(account.reset_code_sent_at).getTime()) / 1000
+      : Infinity;
+    if (sentAgo < RESET_CODE_RESEND_SECONDS) return res.json({ message: RESET_SENT_MESSAGE });
+
+    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+    await req.tenantDb.query(
+      `UPDATE staff SET reset_code_hash = $2, reset_code_expires_at = NOW() + ($3 || ' minutes')::INTERVAL,
+         reset_code_attempts = 0, reset_code_sent_at = NOW()
+       WHERE id = $1`,
+      [account.id, hashResetCode(account.id, code), String(RESET_CODE_MINUTES)]
+    );
+
+    const sent = await sendEmail({
+      to: account.email,
+      subject: `Your GeoAttend password reset code: ${code}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto">
+          <h2 style="color:#1a5276;margin:0 0 12px">Reset your GeoAttend password</h2>
+          <p>Hello ${escapeHtml(account.first_name) || 'there'},</p>
+          <p>Use this code to reset the password for Staff ID <strong>${escapeHtml(account.staff_id)}</strong> at ${escapeHtml(account.institution_name)}:</p>
+          <p style="font-size:32px;font-weight:700;letter-spacing:8px;margin:20px 0;color:#1a5276">${code}</p>
+          <p>The code works for ${RESET_CODE_MINUTES} minutes.</p>
+          <p style="color:#7f8c8d;font-size:13px">Didn't ask for this? Ignore this email; your password stays the same.</p>
+        </div>`,
+    });
+    if (!sent) {
+      // Forget the code so a failed email can be retried straight away
+      await req.tenantDb.query(
+        'UPDATE staff SET reset_code_hash = NULL, reset_code_expires_at = NULL, reset_code_sent_at = NULL WHERE id = $1',
+        [account.id]
+      );
+      return res.status(503).json({ error: NO_EMAIL_MESSAGE, noEmail: true });
+    }
+
+    res.json({ message: RESET_SENT_MESSAGE });
+  } catch (err) {
+    console.error('Send reset code error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+const forgotPasswordHandler = async (req, res) => {
+  try {
+    const { staffId, email, newPassword, institutionCode, code } = req.body;
+
+    if (!staffId || !email || !normalizeInstitutionCode(institutionCode)) {
+      return res.status(400).json({ error: 'Enter your school code, Staff ID and email.' });
+    }
+    if (!code || !/^\d{6}$/.test(String(code).trim())) {
+      return res.status(400).json({ error: 'Enter the 6-digit code we emailed you.', needsCode: true });
+    }
+    if (!newPassword || newPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const institution = await getInstitutionByCode(normalizedInstitutionCode);
-    if (!institution) {
-      return res.status(404).json({ error: 'Invalid institution code' });
+    const wrong = 'That code is wrong or has run out. Check the email, or ask for a new code.';
+    const account = await findResetAccount(req.tenantDb, { institutionCode, staffId, email });
+    if (!account || !account.reset_code_hash) return res.status(400).json({ error: wrong });
+
+    if (!account.reset_code_expires_at || new Date(account.reset_code_expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'That code has run out. Ask for a new code.' });
+    }
+    if (Number(account.reset_code_attempts) >= RESET_CODE_MAX_TRIES) {
+      return res.status(400).json({ error: 'Too many wrong codes. Ask for a new code.' });
     }
 
-    const result = await req.tenantDb.query(
-      "SELECT id FROM staff WHERE (staff_id = $1 OR $1 = ANY(legacy_staff_ids)) AND email = $2 AND member_type = 'staff' AND institution_id = $3 AND is_active = true",
-      [staffId.toUpperCase(), email.toLowerCase().trim(), institution.id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No account found with that Staff ID and email combination' });
+    const expected = Buffer.from(account.reset_code_hash, 'hex');
+    const given = Buffer.from(hashResetCode(account.id, code), 'hex');
+    if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) {
+      await req.tenantDb.query('UPDATE staff SET reset_code_attempts = reset_code_attempts + 1 WHERE id = $1', [account.id]);
+      const left = RESET_CODE_MAX_TRIES - Number(account.reset_code_attempts) - 1;
+      return res.status(400).json({
+        error: left > 0
+          ? `That code is wrong. ${left} ${left === 1 ? 'try' : 'tries'} left.`
+          : 'Too many wrong codes. Ask for a new code.',
+      });
     }
 
     const hash = await bcrypt.hash(newPassword, 12);
-    // The new password also ends every existing login of this account
-    await req.tenantDb.query('UPDATE staff SET password_hash = $1, token_version = token_version + 1, updated_at = NOW() WHERE id = $2', [hash, result.rows[0].id]);
+    // The code is used up, and the new password ends every existing login
+    await req.tenantDb.query(
+      `UPDATE staff SET password_hash = $1, token_version = token_version + 1,
+         reset_code_hash = NULL, reset_code_expires_at = NULL, reset_code_attempts = 0, updated_at = NOW()
+       WHERE id = $2`,
+      [hash, account.id]
+    );
 
-    res.json({ message: 'Password reset successfully. You can now login with your new password.' });
+    res.json({ message: 'Password changed. You can now log in with your new password.', staffId: account.staff_id });
   } catch (err) {
     console.error('Forgot password error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -776,4 +895,6 @@ exports.googleAuth = withSystem(googleAuthHandler);
 exports.completeGoogleSignup = withSystem(completeGoogleSignupHandler);
 exports.register = withSystem(registerHandler);
 exports.forgotPassword = withSystem(forgotPasswordHandler);
+exports.sendResetCode = withSystem(sendResetCodeHandler);
+exports.emailReady = emailReady;
 exports.forgotStaffId = withSystem(forgotStaffIdHandler);

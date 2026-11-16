@@ -113,8 +113,10 @@ export const googleAuth = (idToken, institutionCode) =>
 /** Step 2 for first-time Google users: phone + institution (creates or completes the account). */
 export const completeGoogleSignup = (data) => api.post('/auth/google/complete', { ...data, ...deviceFields() });
 export const registerStaff = (data) => api.post('/auth/register', data);
-export const forgotPassword = (institutionCode, staffId, email, newPassword) =>
-  api.post('/auth/forgot-password', { institutionCode, staffId, email, newPassword });
+export const sendResetCode = (institutionCode, staffId, email) =>
+  api.post('/auth/forgot-password/send-code', { institutionCode, staffId, email });
+export const forgotPassword = (institutionCode, staffId, email, code, newPassword) =>
+  api.post('/auth/forgot-password', { institutionCode, staffId, email, code, newPassword });
 export const forgotStaffId = (institutionCode, email) => api.post('/auth/forgot-staff-id', { institutionCode, email });
 // Short time limits on the sign-in screen: on Wi-Fi with no internet the
 // browser still thinks it's online, so give up quickly and save offline instead.

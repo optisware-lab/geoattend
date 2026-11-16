@@ -85,6 +85,8 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     gitSha,
     nodeEnv: process.env.NODE_ENV || 'development',
+    // Whether password reset codes can be emailed (SMTP_HOST is set)
+    emailReady: Boolean(process.env.SMTP_HOST),
   });
 });
 
@@ -249,6 +251,11 @@ async function runAutoMigration(client) {
     "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS legacy_institution_codes TEXT[] NOT NULL DEFAULT '{}'",
     // Raised on password change / "log out everywhere": older logins stop working
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0',
+    // Forgot password: the emailed 6-digit code (stored hashed), its expiry and tries
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS reset_code_hash VARCHAR(64)',
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS reset_code_expires_at TIMESTAMP',
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS reset_code_attempts INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE staff ADD COLUMN IF NOT EXISTS reset_code_sent_at TIMESTAMP',
     // Accounts that aren't real staff (built-in admin login, vendor account) are left out of attendance
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS counts_in_attendance BOOLEAN NOT NULL DEFAULT true',
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,

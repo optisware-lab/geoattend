@@ -188,8 +188,10 @@ export const login = (staffId, password, institutionCode, deviceInfo) =>
 export const googleAuth = (idToken, institutionCode, deviceInfo) =>
   api.post('/auth/google', { idToken, institutionCode, ...deviceInfo });
 export const completeGoogleSignup = (data) => api.post('/auth/google/complete', data);
-export const forgotPassword = (staffId, email, newPassword, institutionCode) =>
-  api.post('/auth/forgot-password', { staffId, email, newPassword, institutionCode });
+export const sendResetCode = (staffId, email, institutionCode) =>
+  api.post('/auth/forgot-password/send-code', { staffId, email, institutionCode });
+export const forgotPassword = (staffId, email, newPassword, institutionCode, code) =>
+  api.post('/auth/forgot-password', { staffId, email, newPassword, institutionCode, code });
 export const refreshToken = () => api.post('/auth/refresh-token');
 export const getProfile = () => api.get('/auth/profile');
 export const changePassword = (currentPassword, newPassword) =>
