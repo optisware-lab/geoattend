@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { requestLeave, getMyLeaves, cancelLeave } from '../services/api';
 import { formatDateRange } from '../utils/format';
+import DateField from '../components/DateField';
 
 const styles = {
   container: { maxWidth: 860, margin: '0 auto' },
@@ -68,8 +69,8 @@ export default function RequestLeave() {
             <option value="sick">Sick</option>
             <option value="vacation">Vacation</option>
           </select>
-          <input style={styles.input} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-          <input style={styles.input} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          <DateField value={startDate} placeholder="First day" onChange={setStartDate} />
+          <DateField value={endDate} min={startDate || undefined} placeholder="Last day" onChange={setEndDate} />
         </div>
         <div style={{ marginBottom: 12 }}>
           <textarea style={styles.textarea} placeholder="Reason (optional)" value={reason} onChange={e => setReason(e.target.value)} />

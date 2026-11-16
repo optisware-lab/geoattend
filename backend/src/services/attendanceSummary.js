@@ -374,6 +374,8 @@ function buildAbsenceReport(summary, { minAbsent = 0 } = {}) {
       late: sum(counted, 'late'),
       leave: sum(counted, 'leave'),
       absent: sum(counted, 'missed'),
+      // Work days expected across all staff ("staff-days"): the absences are out of this
+      staffDays: expected,
       rate: expected ? Math.round((attended / expected) * 100) : null,
     },
     people,

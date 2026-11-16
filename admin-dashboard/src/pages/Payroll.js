@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { FiClock, FiDollarSign, FiAlertTriangle, FiDownload, FiRefreshCw } from 'react-icons/fi';
 import api, { getPayrollSummary } from '../services/api';
+import DateField from '../components/DateField';
 
 const styles = {
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' },
@@ -135,7 +136,7 @@ export default function Payroll() {
             </button>
           ))}
         </div>
-        <input style={styles.input} type="date" value={date} onChange={e => chooseDate(e.target.value)} />
+        <DateField value={date} onChange={chooseDate} />
         {data?.range && (
           <span style={{ fontSize: '12px', color: '#7f8c8d' }}>
             {data.range[0]} → {data.range[1]}

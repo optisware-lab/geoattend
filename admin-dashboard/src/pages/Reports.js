@@ -9,6 +9,7 @@ import {
 import { PageHeader, Badge } from '../components/ui';
 import WeekByWeek from '../components/WeekByWeek';
 import AbsenceReport from '../components/AbsenceReport';
+import DateField from '../components/DateField';
 import { formatDate, formatDateTime, formatDateRange, formatDay, formatTime, formatDuration, daysInclusive, toInputDate } from '../utils/format';
 
 // Longest period a report can cover (the server enforces the same limit)
@@ -416,22 +417,22 @@ export default function Reports() {
         </div>
         <div style={styles.field}>
           <label style={styles.label} htmlFor="rep-start">From</label>
-          <input
+          <DateField
             id="rep-start"
-            style={styles.input}
-            type="date"
             value={filters.startDate}
-            onChange={e => { setPeriod(''); setFilters(f => ({ ...f, startDate: e.target.value })); }}
+            max={filters.endDate || undefined}
+            placeholder="Start date"
+            onChange={v => { setPeriod(''); setFilters(f => ({ ...f, startDate: v })); }}
           />
         </div>
         <div style={styles.field}>
           <label style={styles.label} htmlFor="rep-end">To</label>
-          <input
+          <DateField
             id="rep-end"
-            style={styles.input}
-            type="date"
             value={filters.endDate}
-            onChange={e => { setPeriod(''); setFilters(f => ({ ...f, endDate: e.target.value })); }}
+            min={filters.startDate || undefined}
+            placeholder="End date"
+            onChange={v => { setPeriod(''); setFilters(f => ({ ...f, endDate: v })); }}
           />
         </div>
         <div style={styles.field}>
@@ -477,13 +478,13 @@ export default function Reports() {
           </div>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="term-start">First day</label>
-            <input id="term-start" style={styles.input} type="date"
-              value={termForm.start || ''} onChange={e => setTermForm(f => ({ ...f, start: e.target.value }))} />
+            <DateField id="term-start" value={termForm.start || ''} placeholder="First day"
+              onChange={v => setTermForm(f => ({ ...f, start: v }))} />
           </div>
           <div style={styles.field}>
             <label style={styles.label} htmlFor="term-end">Last day</label>
-            <input id="term-end" style={styles.input} type="date"
-              value={termForm.end || ''} onChange={e => setTermForm(f => ({ ...f, end: e.target.value }))} />
+            <DateField id="term-end" value={termForm.end || ''} min={termForm.start || undefined} placeholder="Last day"
+              onChange={v => setTermForm(f => ({ ...f, end: v }))} />
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="ga-btn ga-btn-primary" onClick={saveTerm} disabled={savingTerm}>

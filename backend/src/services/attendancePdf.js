@@ -170,14 +170,19 @@ function drawTiles(doc, tiles) {
   const gap = 8;
   const tileW = (WIDTH - gap * (tiles.length - 1)) / tiles.length;
   const tileY = doc.y;
+  // A small second line (e.g. "all staff") makes totals easy to read right
+  const height = tiles.some((t) => t.sub) ? 58 : 48;
   tiles.forEach((t, i) => {
     const x = LEFT + i * (tileW + gap);
-    doc.roundedRect(x, tileY, tileW, 48, 5).lineWidth(0.8).strokeColor(C.line).stroke();
+    doc.roundedRect(x, tileY, tileW, height, 5).lineWidth(0.8).strokeColor(C.line).stroke();
     doc.font('Helvetica-Bold').fontSize(17).fillColor(t.color).text(t.value, x, tileY + 8, { width: tileW, align: 'center', lineBreak: false });
     doc.font('Helvetica').fontSize(7.5).fillColor(C.muted).text(t.label, x, tileY + 31, { width: tileW, align: 'center', lineBreak: false });
+    if (t.sub) doc.font('Helvetica').fontSize(6.5).fillColor(C.muted).text(t.sub, x + 2, tileY + 42, { width: tileW - 4, align: 'center', lineBreak: false });
   });
-  doc.y = tileY + 48 + 10;
+  doc.y = tileY + height + 10;
 }
+
+const perPerson = (n, people) => (people ? Math.round((n / people) * 10) / 10 : 0);
 
 /** Report name and page numbers at the bottom of every page */
 function drawFooter(doc, text) {
@@ -217,7 +222,7 @@ function renderAttendancePdf(stream, { institutionName, institutionLogo, departm
       { label: 'Staff signed in', value: `${m.activeCount}/${m.staffCounted}`, color: C.navy },
       { label: 'On time', value: String(m.onTime), color: C.green },
       { label: 'Late', value: String(m.late), color: C.orange },
-      { label: 'Absent work days', value: String(m.missed), color: C.red },
+      { label: 'Absences (staff-days)', value: String(m.missed), color: C.red },
       { label: 'Leave days', value: String(m.leave), color: C.blue },
       { label: 'Avg hours/day', value: m.avgHours == null ? '-' : `${m.avgHours}h`, color: C.navy },
     ];
@@ -285,16 +290,18 @@ function renderAttendancePdf(stream, { institutionName, institutionLogo, departm
   // Stat tiles
   drawTiles(doc, [
     { label: 'Staff', value: String(summary.staffCount), color: C.navy },
-    { label: 'Work days', value: String(summary.workDayCount), color: C.navy },
-    { label: 'Attendance rate', value: pct(totals.rate), color: C.navy },
-    { label: 'On-time sign-ins', value: String(totals.onTime), color: C.green },
-    { label: 'Late sign-ins', value: String(totals.late), color: C.orange },
-    { label: 'Absent work days', value: String(totals.missed), color: C.red },
+    { label: 'Work days', value: String(summary.workDayCount), color: C.navy, sub: 'in this period' },
+    { label: 'Attendance rate', value: pct(totals.rate), color: C.navy, sub: `${totals.attended} of ${totals.expected} staff-days` },
+    { label: 'On-time sign-ins', value: String(totals.onTime), color: C.green, sub: 'all staff together' },
+    { label: 'Late sign-ins', value: String(totals.late), color: C.orange, sub: `all staff · ${perPerson(totals.late, summary.staffCount)} each` },
+    { label: 'Absences (staff-days)', value: String(totals.missed), color: C.red, sub: `all staff · ${perPerson(totals.missed, summary.staffCount)} each` },
   ]);
 
   doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(
     `${summary.activeStaff} of ${summary.staffCount} staff signed in at least once in this period. `
-      + `Attendance rate = days signed in ÷ work days expected (approved leave and days before a person joined are not counted).`,
+      + `Sign-ins and absences are totals for all staff together: ${summary.workDayCount} work days × ${summary.staffCount} staff gives `
+      + `${totals.expected} staff-days expected (fewer for people who joined later or were on leave), and ${totals.missed} of them had no sign-in. `
+      + `Attendance rate = days signed in ÷ staff-days expected.`,
     LEFT, doc.y, { width: WIDTH }
   );
   doc.y += 12;
@@ -556,15 +563,17 @@ function renderAbsencePdf(stream, { institutionName, institutionLogo, report, de
   drawTitle(doc, { institutionName, institutionLogo, title, periodLabel, filtersLabel });
   drawTiles(doc, [
     { label: 'Staff counted', value: String(totals.staffCount), color: C.navy },
-    { label: 'Work days', value: String(report.workDayCount), color: C.navy },
-    { label: 'Staff with absences', value: String(totals.withAbsences), color: C.red },
-    { label: 'Absent work days', value: String(totals.absent), color: C.red },
-    { label: 'Late sign-ins', value: String(totals.late), color: C.orange },
-    { label: 'Attendance rate', value: pct(totals.rate), color: C.navy },
+    { label: 'Work days', value: String(report.workDayCount), color: C.navy, sub: 'in this period' },
+    { label: 'Staff with absences', value: String(totals.withAbsences), color: C.red, sub: `of ${totals.staffCount} staff` },
+    { label: 'Absences (staff-days)', value: String(totals.absent), color: C.red, sub: `all staff · ${perPerson(totals.absent, totals.staffCount)} each` },
+    { label: 'Late sign-ins', value: String(totals.late), color: C.orange, sub: `all staff · ${perPerson(totals.late, totals.staffCount)} each` },
+    { label: 'Attendance rate', value: pct(totals.rate), color: C.navy, sub: totals.staffDays != null ? `of ${totals.staffDays} staff-days` : undefined },
   ]);
 
   doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(
-    'Absent = a work day with no sign-in and no approved leave. Days before a person joined and days after today are not counted. '
+    `Absences and late sign-ins are totals for all staff together, not for one person: ${report.workDayCount} work days × ${totals.staffCount} staff `
+      + `gives ${totals.staffDays ?? 'up to ' + report.workDayCount * totals.staffCount} staff-days expected, and ${totals.absent} of them had no sign-in. Each person's own figures are in the table below. `
+      + 'Absent = a work day with no sign-in and no approved leave. Days before a person joined and days after today are not counted. '
       + 'Rate = days present ÷ work days expected (leave days are left out).',
     LEFT, doc.y, { width: WIDTH }
   );

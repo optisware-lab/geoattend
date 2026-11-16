@@ -20,14 +20,17 @@ function rateColor(rate) {
   return '#c0392b';
 }
 
-function Tile({ label, value, color = '#1a5276' }) {
+function Tile({ label, value, color = '#1a5276', sub }) {
   return (
     <div className="ga-card" style={{ padding: '12px 14px', borderTop: `3px solid ${color}`, minWidth: 0 }}>
       <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1.1 }}>{value}</div>
       <div style={{ fontSize: 11.5, fontWeight: 700, color: '#7f8c8d', textTransform: 'uppercase', letterSpacing: 0.3, marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 11.5, color: '#95a5a6', marginTop: 3 }}>{sub}</div>}
     </div>
   );
 }
+
+const perPerson = (n, people) => (people ? Math.round((n / people) * 10) / 10 : 0);
 
 const num = { textAlign: 'center', whiteSpace: 'nowrap' };
 const DATES_SHOWN = 4;
@@ -53,6 +56,8 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
   }
 
   const t = data.totals;
+  // Absences and late sign-ins are totals for everyone: say what they're out of
+  const staffDays = t.staffDays ?? (data.people || []).reduce((n, p) => n + (p.expected || 0), 0);
   const shown = data.people.filter((p) => p.missed >= minAbsent);
   const toggle = (id) => setExpanded((s) => {
     const next = new Set(s);
@@ -63,13 +68,13 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
   return (
     <div style={{ marginBottom: 24, opacity: loading ? 0.6 : 1, transition: 'opacity 0.15s' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 14 }}>
-        <Tile label="Work days" value={data.workDayCount} />
+        <Tile label="Work days" value={data.workDayCount} sub="in this period" />
         <Tile label="Staff counted" value={t.staffCount} />
-        <Tile label="Staff with absences" value={t.withAbsences} color="#c0392b" />
-        <Tile label="Absent work days" value={t.absent} color="#c0392b" />
-        <Tile label="Late sign-ins" value={t.late} color="#c0640f" />
-        <Tile label="Leave days" value={t.leave} color="#2471a3" />
-        <Tile label="Attendance rate" value={t.rate == null ? '-' : `${t.rate}%`} color={rateColor(t.rate)} />
+        <Tile label="Staff with absences" value={t.withAbsences} color="#c0392b" sub={`of ${t.staffCount} staff`} />
+        <Tile label="Absences (all staff)" value={t.absent} color="#c0392b" sub={`of ${staffDays} staff-days · ${perPerson(t.absent, t.staffCount)} each`} />
+        <Tile label="Late sign-ins (all staff)" value={t.late} color="#c0640f" sub={`${perPerson(t.late, t.staffCount)} each on average`} />
+        <Tile label="Leave days (all staff)" value={t.leave} color="#2471a3" />
+        <Tile label="Attendance rate" value={t.rate == null ? '-' : `${t.rate}%`} color={rateColor(t.rate)} sub="days present ÷ staff-days" />
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -146,6 +151,8 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
         </table>
       </div>
       <div style={{ fontSize: 12, color: '#95a5a6', marginTop: 8 }}>
+        Absences and late sign-ins above are totals for all staff together: {data.workDayCount} work days × {t.staffCount} staff = {staffDays} staff-days expected
+        (fewer for people who joined later). Each person&apos;s own figures are in the table.
         Absent means a work day with no sign-in and no approved leave. Days before someone joined, and days still to come, are not counted.
       </div>
     </div>
