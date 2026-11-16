@@ -38,6 +38,13 @@ export function formatDate(value, fallback = '-') {
   return `${DAYS_SHORT[d.getDay()]}, ${formatDay(d)}`;
 }
 
+/** "Thu 10-Sept" (short, for lists of days) */
+export function formatWeekdayDay(value, fallback = '-') {
+  const d = toDate(value);
+  if (!d) return fallback;
+  return `${DAYS_SHORT[d.getDay()]} ${d.getDate()}-${MONTHS_SHORT[d.getMonth()]}`;
+}
+
 /** "Thursday, 23 April 2026" */
 export function formatDateLong(value, fallback = '-') {
   const d = toDate(value);

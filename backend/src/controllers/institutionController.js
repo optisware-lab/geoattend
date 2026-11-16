@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { generateInstitutionQR } = require('../utils/qrcode');
 const { logAudit } = require('../middleware/audit');
+const { dayKey } = require('../utils/dateFormat');
 const { encrypt, decrypt, decryptSafe, isEncrypted } = require('../utils/credentialsCrypto');
 const {
   ensureTrialSubscription,
@@ -153,8 +154,46 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 function publicInstitution(row) {
   if (!row) return row;
   const { logo, ...rest } = row;
-  return { ...rest, has_logo: Boolean(logo), logo_version: row.logo_updated_at ? new Date(row.logo_updated_at).getTime() : null };
+  return {
+    ...rest,
+    // Term dates as plain "YYYY-MM-DD" so they never shift by a time zone
+    ...('term_start' in row ? { term_start: dayKey(row.term_start) || null, term_end: dayKey(row.term_end) || null } : {}),
+    has_logo: Boolean(logo),
+    logo_version: row.logo_updated_at ? new Date(row.logo_updated_at).getTime() : null,
+  };
 }
+
+// The current school term, used by the "This term" report period.
+// Send { name, startDate, endDate }, or { clear: true } to remove it.
+exports.updateTerm = async (req, res) => {
+  try {
+    const { name, startDate, endDate, clear } = req.body || {};
+    const day = /^\d{4}-\d{2}-\d{2}$/;
+    let values = [null, null, null];
+    if (!clear) {
+      const termName = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+      if (!day.test(startDate || '') || !day.test(endDate || '') || Number.isNaN(Date.parse(startDate)) || Number.isNaN(Date.parse(endDate))) {
+        return res.status(400).json({ error: 'Enter the first and last day of the term.' });
+      }
+      if (endDate < startDate) return res.status(400).json({ error: 'The term ends before it starts.' });
+      if ((Date.parse(endDate) - Date.parse(startDate)) / 86400000 + 1 > 366) {
+        return res.status(400).json({ error: 'A term can be at most one year long.' });
+      }
+      values = [termName || 'This term', startDate, endDate];
+    }
+    const result = await req.tenantDb.query(
+      `UPDATE institutions SET term_name = $1, term_start = $2, term_end = $3, updated_at = NOW()
+       WHERE id = $4 RETURNING term_name, term_start, term_end`,
+      [...values, req.user.institution_id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Institution not found' });
+    const row = result.rows[0];
+    res.json({ term_name: row.term_name, term_start: dayKey(row.term_start) || null, term_end: dayKey(row.term_end) || null });
+  } catch (err) {
+    console.error('Update term error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
 
 // Institution + its stored admin credentials, as returned by createInstitution
 async function getCreatedInstitution(id, db) {

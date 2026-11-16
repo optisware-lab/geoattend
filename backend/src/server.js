@@ -240,6 +240,10 @@ async function runAutoMigration(client) {
     // Institution logo (PNG, max 512 px), shown in the apps and on reports
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo BYTEA`,
     `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMP`,
+    // The current school term, saved by the admin for "This term" reports
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS term_name VARCHAR(60)`,
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS term_start DATE`,
+    `ALTER TABLE institutions ADD COLUMN IF NOT EXISTS term_end DATE`,
     "ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFAULT '{}'",
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 

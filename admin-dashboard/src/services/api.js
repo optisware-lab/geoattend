@@ -74,6 +74,7 @@ export const deleteStaff = (id) => api.delete(`/staff/${id}`);
 // Institution
 export const getInstitution = () => api.get('/institutions/current');
 export const updateInstitution = (data) => api.put('/institutions/current', data);
+export const updateTerm = (data) => api.put('/institutions/current/term', data);
 export const getInstitutionQR = () => api.get('/institutions/qr-code');
 export const rotateInstitutionQR = () => api.post('/institutions/qr-code/rotate');
 export const getAttendanceRules = (params) => api.get('/institutions/rules', { params });
@@ -99,6 +100,7 @@ export const getRealTimeAttendance = (params) => api.get('/reports/realtime', { 
 export const getCheckInSelfie = (recordId) => api.get(`/attendance/records/${recordId}/selfie`, { responseType: 'blob' });
 export const getWeeklySummary = (params) => api.get('/reports/weekly-summary', { params });
 export const getWeeklyBreakdown = (params) => api.get('/reports/weekly-breakdown', { params });
+export const getAbsenceReport = (params) => api.get('/reports/absence', { params });
 export const getFraudReport = (params) => api.get('/reports/fraud', { params });
 export const getGeofenceEvents = (params) => api.get('/reports/geofence-events', { params });
 

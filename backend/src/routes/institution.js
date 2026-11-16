@@ -23,6 +23,7 @@ router.put('/rules', requireAdmin, institutionController.updateAttendanceRules);
 router.get('/staff-ids', requireAdmin, institutionController.getStaffIdSettings);
 router.put('/current/logo', requireAdmin, auditMiddleware('update_logo', 'institution'), institutionController.uploadLogo);
 router.delete('/current/logo', requireAdmin, auditMiddleware('remove_logo', 'institution'), institutionController.deleteLogo);
+router.put('/current/term', requireAdmin, auditMiddleware('update_term', 'institution'), institutionController.updateTerm);
 router.put('/staff-ids', requireAdmin, auditMiddleware('renumber_staff_ids', 'institution'), institutionController.updateStaffIdSettings);
 
 // Super admin only

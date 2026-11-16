@@ -150,6 +150,11 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
   };
 
   const weeks = [];
+  // Whole-period totals per person (the absence report)
+  const periodRows = new Map(people.map((p) => [p.id, {
+    id: p.id, staffId: p.staffId, name: p.name, department: p.department,
+    daysIn: 0, late: 0, expected: 0, attended: 0, missed: 0, leave: 0, absentDates: [],
+  }]));
   const totals = { expected: 0, attended: 0, signIns: 0, onTime: 0, late: 0, missed: 0, leave: 0 };
   const everActive = new Set();
 
@@ -207,9 +212,11 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
       people.forEach((p) => {
         const cells = {};
         const row = { id: p.id, staffId: p.staffId, name: p.name, department: p.department, cells, daysIn: 0, late: 0, expected: 0, missed: 0, leave: 0 };
+        const pr = periodRows.get(p.id);
         days.forEach((d) => {
           const cell = cellFor(p, d);
           cells[dayKey(d)] = cell;
+          if (cell?.status === 'absent') pr.absentDates.push(dayKey(d));
           const month = monthFor(d);
           if (workSet.has(d.getDay())) month.workDays.add(dayKey(d));
           if (!cell) return;
@@ -238,6 +245,13 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
             row.leave += 1;
           }
         });
+
+        pr.daysIn += row.daysIn;
+        pr.late += row.late;
+        pr.expected += row.expected;
+        pr.attended += row.expected - row.missed;
+        pr.missed += row.missed;
+        pr.leave += row.leave;
 
         week.expected += row.expected;
         week.signIns += row.daysIn;
@@ -314,6 +328,11 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
     };
   });
 
+  const periodPeople = [...periodRows.values()].map((r) => ({
+    ...r,
+    rate: r.expected ? Math.round((r.attended / r.expected) * 100) : null,
+  }));
+
   return {
     start: dayKey(rangeStart),
     end: dayKey(rangeStart <= rangeEnd ? rangeEnd : requestedEnd),
@@ -324,7 +343,41 @@ function buildWeeklyBreakdown({ staff, records, leaves, workingDays }, { startDa
     totals: { ...totals, rate: totals.expected ? Math.round((totals.attended / totals.expected) * 100) : null },
     weeks,
     months,
+    people: periodPeople,
   };
 }
 
-module.exports = { loadAttendanceData, buildWeeklyBreakdown };
+/**
+ * Absence report for the whole period: one row per staff member, most
+ * absent first. `minAbsent` keeps only people absent at least that many
+ * work days (0 = everyone).
+ */
+function buildAbsenceReport(summary, { minAbsent = 0 } = {}) {
+  // People who had nothing to count (joined after the period) are left out
+  const counted = (summary.people || []).filter((r) => r.expected > 0 || r.daysIn > 0 || r.leave > 0);
+  const sum = (rows, k) => rows.reduce((n, r) => n + r[k], 0);
+  const expected = sum(counted, 'expected');
+  const attended = sum(counted, 'attended');
+  const people = counted
+    .filter((r) => r.missed >= minAbsent)
+    .sort((a, b) => b.missed - a.missed || a.name.localeCompare(b.name));
+
+  return {
+    start: summary.start,
+    end: summary.end,
+    workDayCount: summary.workDayCount,
+    minAbsent,
+    totals: {
+      staffCount: counted.length,
+      withAbsences: counted.filter((r) => r.missed > 0).length,
+      present: sum(counted, 'daysIn'),
+      late: sum(counted, 'late'),
+      leave: sum(counted, 'leave'),
+      absent: sum(counted, 'missed'),
+      rate: expected ? Math.round((attended / expected) * 100) : null,
+    },
+    people,
+  };
+}
+
+module.exports = { loadAttendanceData, buildWeeklyBreakdown, buildAbsenceReport };

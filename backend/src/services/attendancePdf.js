@@ -45,11 +45,8 @@ function pct(n) {
   return n == null ? '-' : `${n}%`;
 }
 
-function renderAttendancePdf(stream, { institutionName, institutionLogo, department, staffIdFilter, summary, records, staffById }) {
-  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin, bufferPages: true });
-  doc.pipe(stream);
-
-  // ---- small drawing helpers ----
+// ---- small drawing helpers, shared by every report ----
+function helpersFor(doc) {
   const fit = (str, width) => {
     let s = String(str ?? '');
     if (doc.widthOfString(s) <= width) return s;
@@ -139,6 +136,69 @@ function renderAttendancePdf(stream, { institutionName, institutionLogo, departm
     doc.y += 8;
   };
 
+  return { fit, cell, newPage, ensure, sectionTitle, table };
+}
+
+function createDoc(stream) {
+  const doc = new PDFDocument({ size: 'A4', margin: PAGE.margin, bufferPages: true });
+  doc.pipe(stream);
+  return doc;
+}
+
+/** Logo, school name, report name, period, filters and when it was made */
+function drawTitle(doc, { institutionName, institutionLogo, title, periodLabel, filtersLabel }) {
+  let titleY = PAGE.margin;
+  if (institutionLogo) {
+    try {
+      const logoH = 56;
+      doc.image(institutionLogo, LEFT + (WIDTH - 140) / 2, titleY, { fit: [140, logoH], align: 'center', valign: 'center' });
+      titleY += logoH + 8;
+    } catch { /* unreadable image: report still prints */ }
+  }
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(C.navy).text(institutionName, LEFT, titleY, { width: WIDTH, align: 'center' });
+  doc.font('Helvetica').fontSize(13).fillColor(C.text).text(title, { width: WIDTH, align: 'center' });
+  doc.moveDown(0.2);
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.text).text(`Period: ${periodLabel}`, { width: WIDTH, align: 'center' });
+  if (filtersLabel) doc.font('Helvetica').fontSize(9).fillColor(C.muted).text(filtersLabel, { width: WIDTH, align: 'center' });
+  const now = new Date();
+  doc.font('Helvetica').fontSize(8).fillColor(C.muted).text(`Generated ${formatDate(now)} at ${formatTime(now)}`, { width: WIDTH, align: 'center' });
+  doc.y += 14;
+}
+
+/** A row of figure tiles across the page */
+function drawTiles(doc, tiles) {
+  const gap = 8;
+  const tileW = (WIDTH - gap * (tiles.length - 1)) / tiles.length;
+  const tileY = doc.y;
+  tiles.forEach((t, i) => {
+    const x = LEFT + i * (tileW + gap);
+    doc.roundedRect(x, tileY, tileW, 48, 5).lineWidth(0.8).strokeColor(C.line).stroke();
+    doc.font('Helvetica-Bold').fontSize(17).fillColor(t.color).text(t.value, x, tileY + 8, { width: tileW, align: 'center', lineBreak: false });
+    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted).text(t.label, x, tileY + 31, { width: tileW, align: 'center', lineBreak: false });
+  });
+  doc.y = tileY + 48 + 10;
+}
+
+/** Report name and page numbers at the bottom of every page */
+function drawFooter(doc, text) {
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i += 1) {
+    doc.switchToPage(i);
+    const bottomMargin = doc.page.margins.bottom;
+    doc.page.margins.bottom = 0;
+    const fy = PAGE.height - PAGE.margin + 4;
+    doc.moveTo(LEFT, fy - 6).lineTo(LEFT + WIDTH, fy - 6).lineWidth(0.5).strokeColor(C.line).stroke();
+    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
+      .text(text, LEFT, fy, { width: WIDTH, lineBreak: false });
+    doc.text(`Page ${i - range.start + 1} of ${range.count}`, LEFT, fy, { width: WIDTH, align: 'right', lineBreak: false });
+    doc.page.margins.bottom = bottomMargin;
+  }
+}
+
+function renderAttendancePdf(stream, { institutionName, institutionLogo, department, staffIdFilter, summary, records, staffById }) {
+  const doc = createDoc(stream);
+  const { cell, ensure, sectionTitle, table } = helpersFor(doc);
+
   // ---- Monthly summary: banner, figures, one line per staff member ----
   const months = summary.months || [];
   const drawMonthSummary = (m) => {
@@ -220,43 +280,17 @@ function renderAttendancePdf(stream, { institutionName, institutionLogo, departm
   const periodLabel = formatDateRange(summary.start, summary.end);
   const filtersLabel = [department && `Department: ${department}`, staffIdFilter && `Staff ID: ${staffIdFilter}`].filter(Boolean).join('   ·   ');
 
-  // Institution logo above the name (skipped if the stored image can't be read)
-  let titleY = PAGE.margin;
-  if (institutionLogo) {
-    try {
-      const logoH = 56;
-      doc.image(institutionLogo, LEFT + (WIDTH - 140) / 2, titleY, { fit: [140, logoH], align: 'center', valign: 'center' });
-      titleY += logoH + 8;
-    } catch { /* unreadable image: report still prints */ }
-  }
-  doc.font('Helvetica-Bold').fontSize(20).fillColor(C.navy).text(institutionName, LEFT, titleY, { width: WIDTH, align: 'center' });
-  doc.font('Helvetica').fontSize(13).fillColor(C.text).text('Attendance Report', { width: WIDTH, align: 'center' });
-  doc.moveDown(0.2);
-  doc.font('Helvetica-Bold').fontSize(10).fillColor(C.text).text(`Period: ${periodLabel}`, { width: WIDTH, align: 'center' });
-  if (filtersLabel) doc.font('Helvetica').fontSize(9).fillColor(C.muted).text(filtersLabel, { width: WIDTH, align: 'center' });
-  const now = new Date();
-  doc.font('Helvetica').fontSize(8).fillColor(C.muted).text(`Generated ${formatDate(now)} at ${formatTime(now)}`, { width: WIDTH, align: 'center' });
-  doc.y += 14;
+  drawTitle(doc, { institutionName, institutionLogo, title: 'Attendance Report', periodLabel, filtersLabel });
 
   // Stat tiles
-  const tiles = [
+  drawTiles(doc, [
     { label: 'Staff', value: String(summary.staffCount), color: C.navy },
     { label: 'Work days', value: String(summary.workDayCount), color: C.navy },
     { label: 'Attendance rate', value: pct(totals.rate), color: C.navy },
     { label: 'On-time sign-ins', value: String(totals.onTime), color: C.green },
     { label: 'Late sign-ins', value: String(totals.late), color: C.orange },
     { label: 'Absent work days', value: String(totals.missed), color: C.red },
-  ];
-  const gap = 8;
-  const tileW = (WIDTH - gap * (tiles.length - 1)) / tiles.length;
-  const tileY = doc.y;
-  tiles.forEach((t, i) => {
-    const x = LEFT + i * (tileW + gap);
-    doc.roundedRect(x, tileY, tileW, 48, 5).lineWidth(0.8).strokeColor(C.line).stroke();
-    doc.font('Helvetica-Bold').fontSize(17).fillColor(t.color).text(t.value, x, tileY + 8, { width: tileW, align: 'center', lineBreak: false });
-    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted).text(t.label, x, tileY + 31, { width: tileW, align: 'center', lineBreak: false });
-  });
-  doc.y = tileY + 48 + 10;
+  ]);
 
   doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(
     `${summary.activeStaff} of ${summary.staffCount} staff signed in at least once in this period. `
@@ -500,21 +534,121 @@ function renderAttendancePdf(stream, { institutionName, institutionLogo, departm
     );
   }
 
-  // ---- Footer on every page ----
-  const range = doc.bufferedPageRange();
-  for (let i = range.start; i < range.start + range.count; i += 1) {
-    doc.switchToPage(i);
-    const bottomMargin = doc.page.margins.bottom;
-    doc.page.margins.bottom = 0;
-    const fy = PAGE.height - PAGE.margin + 4;
-    doc.moveTo(LEFT, fy - 6).lineTo(LEFT + WIDTH, fy - 6).lineWidth(0.5).strokeColor(C.line).stroke();
-    doc.font('Helvetica').fontSize(7.5).fillColor(C.muted)
-      .text(`${institutionName}  ·  Attendance Report  ·  ${periodLabel}`, LEFT, fy, { width: WIDTH, lineBreak: false });
-    doc.text(`Page ${i - range.start + 1} of ${range.count}`, LEFT, fy, { width: WIDTH, align: 'right', lineBreak: false });
-    doc.page.margins.bottom = bottomMargin;
-  }
-
+  drawFooter(doc, `${institutionName}  ·  Attendance Report  ·  ${periodLabel}`);
   doc.end();
 }
 
-module.exports = { renderAttendancePdf };
+/** "Mon 14-Sept" */
+function weekdayDay(key) {
+  const d = toDate(key);
+  return d ? `${DAYS[d.getDay()]} ${d.getDate()}-${MONTHS[d.getMonth()]}` : '';
+}
+
+// Absence report: one line per staff member for the whole period, then the
+// days each person was absent, then lines to sign. Made to be printed.
+function renderAbsencePdf(stream, { institutionName, institutionLogo, report, department, showLabel, title = 'Absence Report' }) {
+  const doc = createDoc(stream);
+  const { ensure, sectionTitle, table } = helpersFor(doc);
+  const { totals, people } = report;
+  const periodLabel = formatDateRange(report.start, report.end);
+  const filtersLabel = [department && `Department: ${department}`, showLabel && `Showing: ${showLabel}`].filter(Boolean).join('   ·   ');
+
+  drawTitle(doc, { institutionName, institutionLogo, title, periodLabel, filtersLabel });
+  drawTiles(doc, [
+    { label: 'Staff counted', value: String(totals.staffCount), color: C.navy },
+    { label: 'Work days', value: String(report.workDayCount), color: C.navy },
+    { label: 'Staff with absences', value: String(totals.withAbsences), color: C.red },
+    { label: 'Absent work days', value: String(totals.absent), color: C.red },
+    { label: 'Late sign-ins', value: String(totals.late), color: C.orange },
+    { label: 'Attendance rate', value: pct(totals.rate), color: C.navy },
+  ]);
+
+  doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(
+    'Absent = a work day with no sign-in and no approved leave. Days before a person joined and days after today are not counted. '
+      + 'Rate = days present ÷ work days expected (leave days are left out).',
+    LEFT, doc.y, { width: WIDTH }
+  );
+  doc.y += 12;
+
+  sectionTitle('Staff absence summary', 'Most absent first.');
+  if (!people.length) {
+    doc.font('Helvetica').fontSize(9).fillColor(C.muted).text('No staff match these filters for this period.', LEFT, doc.y);
+    doc.y += 12;
+  } else {
+    const fixed = 22 + 52 + 82 + 44 + 46 + 36 + 38 + 44 + 40;
+    table(
+      [
+        { key: 'n', label: '#', width: 22, align: 'center' },
+        { key: 'name', label: 'Name', width: WIDTH - fixed, bold: true },
+        { key: 'id', label: 'Staff ID', width: 52, size: 7.5 },
+        { key: 'dept', label: 'Department', width: 82, size: 7.5 },
+        { key: 'work', label: 'Work days', width: 44, align: 'center' },
+        { key: 'present', label: 'Present', width: 46, align: 'center' },
+        { key: 'late', label: 'Late', width: 36, align: 'center' },
+        { key: 'leave', label: 'Leave', width: 38, align: 'center' },
+        { key: 'absent', label: 'Absent', width: 44, align: 'center' },
+        { key: 'rate', label: 'Rate', width: 40, align: 'center' },
+      ],
+      people.map((r, i) => ({
+        n: { text: String(i + 1), color: C.muted },
+        name: r.name,
+        id: { text: r.staffId, color: C.muted },
+        dept: { text: r.department || '-', color: C.muted },
+        work: String(r.expected),
+        present: { text: String(r.daysIn), color: C.green },
+        late: { text: String(r.late), color: r.late ? C.orange : C.muted },
+        leave: { text: String(r.leave), color: r.leave ? C.blue : C.muted },
+        absent: { text: String(r.missed), color: r.missed ? C.red : C.muted, bold: r.missed > 0 },
+        rate: { text: pct(r.rate), bold: true, color: r.rate == null ? C.muted : r.rate >= 90 ? C.green : r.rate >= 70 ? C.orange : C.red },
+      })),
+      { continued: `Staff absence summary (continued)  ·  ${periodLabel}` }
+    );
+  }
+
+  const absentees = people.filter((r) => r.absentDates.length);
+  if (absentees.length) {
+    doc.y += 10;
+    sectionTitle('Days absent', 'The work days each person did not sign in, with no approved leave.');
+    absentees.forEach((r) => {
+      ensure(30);
+      doc.font('Helvetica-Bold').fontSize(9).fillColor(C.text)
+        .text(`${r.name}  `, LEFT, doc.y, { continued: true, width: WIDTH });
+      doc.font('Helvetica').fillColor(C.muted).text(`${r.staffId}${r.department ? `  ·  ${r.department}` : ''}  ·  `, { continued: true });
+      doc.font('Helvetica-Bold').fillColor(C.red).text(`${r.missed} day${r.missed === 1 ? '' : 's'}`);
+      // Wrap by whole dates so "28-Oct" never splits at the hyphen
+      doc.font('Helvetica').fontSize(8.5).fillColor(C.text);
+      const lines = [];
+      r.absentDates.map(weekdayDay).forEach((d, i, all) => {
+        const item = i < all.length - 1 ? `${d},   ` : d;
+        const last = lines[lines.length - 1];
+        if (last != null && doc.widthOfString(last + item.trimEnd()) <= WIDTH - 10) lines[lines.length - 1] = last + item;
+        else lines.push(item);
+      });
+      doc.y += 1;
+      lines.forEach((line) => {
+        ensure(12);
+        const y = doc.y;
+        doc.font('Helvetica').fontSize(8.5).fillColor(C.text).text(line.trimEnd(), LEFT + 10, y, { lineBreak: false });
+        doc.y = y + 11.5;
+      });
+      doc.y += 5;
+    });
+  }
+
+  // Lines to sign on the printed copy
+  doc.y += 20;
+  ensure(60);
+  const sy = doc.y + 26;
+  const colW = (WIDTH - 40) / 3;
+  ['Prepared by', 'Signature', 'Date'].forEach((label, i) => {
+    const x = LEFT + i * (colW + 20);
+    doc.moveTo(x, sy).lineTo(x + colW, sy).lineWidth(0.7).strokeColor(C.muted).stroke();
+    doc.font('Helvetica').fontSize(8).fillColor(C.muted).text(label, x, sy + 4, { width: colW, lineBreak: false });
+  });
+  doc.y = sy + 20;
+
+  drawFooter(doc, `${institutionName}  ·  ${title}  ·  ${periodLabel}`);
+  doc.end();
+}
+
+module.exports = { renderAttendancePdf, renderAbsencePdf };

@@ -11,9 +11,12 @@ router.get('/attendance', reportController.getAttendanceReport);
 router.get('/realtime', reportController.getRealTimeAttendance);
 router.get('/weekly-summary', reportController.getWeeklySummary);
 router.get('/weekly-breakdown', reportController.getWeeklyBreakdown);
+router.get('/absence', reportController.getAbsenceReport);
 router.get('/fraud', reportController.getFraudReport);
 router.get('/geofence-events', reportController.getGeofenceEvents);
 router.get('/export/excel', reportController.exportExcel);
 router.get('/export/pdf', reportController.exportPDF);
+router.get('/export/absence/pdf', reportController.exportAbsencePDF);
+router.get('/export/absence/excel', reportController.exportAbsenceExcel);
 
 module.exports = router;

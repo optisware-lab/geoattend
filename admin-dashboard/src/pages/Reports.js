@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
-import { FiDownload, FiFileText, FiFilter, FiAlertTriangle, FiShare2 } from 'react-icons/fi';
-import { API_BASE_URL, getAttendanceReport, getDepartments, getFraudReport, getGeofenceEvents, getWeeklyBreakdown } from '../services/api';
+import { FiDownload, FiFileText, FiFilter, FiAlertTriangle, FiShare2, FiPrinter, FiCalendar } from 'react-icons/fi';
+import {
+  API_BASE_URL, getAttendanceReport, getDepartments, getFraudReport, getGeofenceEvents, getWeeklyBreakdown,
+  getAbsenceReport, getInstitution, updateTerm,
+} from '../services/api';
 import { PageHeader, Badge } from '../components/ui';
 import WeekByWeek from '../components/WeekByWeek';
-import { formatDate, formatDateTime, formatDateRange, formatTime, formatDuration } from '../utils/format';
+import AbsenceReport from '../components/AbsenceReport';
+import { formatDate, formatDateTime, formatDateRange, formatDay, formatTime, formatDuration, daysInclusive, toInputDate } from '../utils/format';
+
+// Longest period a report can cover (the server enforces the same limit)
+const MAX_RANGE_DAYS = 366;
 
 const styles = {
   filters: {
@@ -28,12 +35,19 @@ function toDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-function periodRange(period) {
+function periodRange(period, term) {
   const today = new Date();
   const start = new Date(today);
   const end = new Date(today);
+  const sinceMonday = (today.getDay() + 6) % 7; // weeks run Monday to Sunday
 
   switch (period) {
+    case 'this_term':
+      return term?.start ? { startDate: term.start, endDate: term.end } : null;
+    case 'last_3_months': {
+      const from = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate() + 1);
+      return { startDate: toDateStr(from), endDate: toDateStr(end) };
+    }
     case 'today':
       break;
     case 'yesterday':
@@ -47,14 +61,12 @@ function periodRange(period) {
       start.setDate(start.getDate() - 29);
       break;
     case 'this_week':
-      start.setDate(start.getDate() - start.getDay());
+      start.setDate(start.getDate() - sinceMonday);
       break;
-    case 'last_week': {
-      const dow = start.getDay();
-      start.setDate(start.getDate() - dow - 7);
-      end.setDate(end.getDate() - dow - 1);
+    case 'last_week':
+      start.setDate(start.getDate() - sinceMonday - 7);
+      end.setDate(end.getDate() - sinceMonday - 1);
       break;
-    }
     case 'this_month':
       start.setDate(1);
       break;
@@ -75,17 +87,57 @@ function periodRange(period) {
 }
 
 const PERIOD_OPTIONS = [
-  { value: '', label: 'All time' },
   { value: 'today', label: 'Today' },
   { value: 'yesterday', label: 'Yesterday' },
-  { value: 'last7', label: 'Last 7 days' },
-  { value: 'last30', label: 'Last 30 days' },
   { value: 'this_week', label: 'This week' },
   { value: 'last_week', label: 'Last week' },
   { value: 'this_month', label: 'This month' },
   { value: 'last_month', label: 'Last month' },
+  { value: 'last_3_months', label: 'Last 3 months' },
+  { value: 'this_term', label: 'This term' },
+  { value: 'last7', label: 'Last 7 days' },
+  { value: 'last30', label: 'Last 30 days' },
   { value: 'this_year', label: 'This year' },
+  { value: '', label: 'All time' },
 ];
+
+const VIEWS = [
+  { key: 'absence', label: 'Absence report' },
+  { key: 'attendance', label: 'Attendance and sign-ins' },
+];
+
+/** Why these dates can't be used, or null when they are fine */
+function rangeProblem(startDate, endDate) {
+  if (startDate && endDate && endDate < startDate) return 'The "To" date is before the "From" date.';
+  if (startDate) {
+    const days = daysInclusive(startDate, endDate || toInputDate());
+    if (days > MAX_RANGE_DAYS) return `A report can cover up to one year. This period is ${days} days; please shorten it.`;
+  }
+  return null;
+}
+
+function cleanParams(f) {
+  const params = {};
+  Object.entries(f).forEach(([k, v]) => { if (v && String(v).trim()) params[k] = String(v).trim(); });
+  return params;
+}
+
+// The absence report always needs both ends of the period
+function absenceParams(f) {
+  return { ...cleanParams(f), endDate: f.endDate || toInputDate() };
+}
+
+function savedView() {
+  try { return localStorage.getItem('reports.view'); } catch { return null; }
+}
+
+async function errorMessage(res) {
+  try {
+    const body = await res.json();
+    if (body?.error) return body.error;
+  } catch { /* not JSON */ }
+  return 'Export failed. Please try again.';
+}
 
 const STATUS_VIEWS = [
   { key: '', label: 'All' },
@@ -102,8 +154,24 @@ function rowStatus(r) {
 export default function Reports() {
   const [searchParams] = useSearchParams();
   const requested = searchParams.get('period');
-  const initialPeriod = PERIOD_OPTIONS.some((o) => o.value === requested) && requested ? requested : 'last7';
+  const initialPeriod = PERIOD_OPTIONS.some((o) => o.value === requested) && requested && requested !== 'this_term' ? requested : 'this_month';
   const initialRange = periodRange(initialPeriod) || { startDate: '', endDate: '' };
+  // ?view= wins; a link with ?period= (e.g. "Today's report") opens sign-ins;
+  // otherwise the view used last time
+  const [view, setViewState] = useState(() => {
+    const v = searchParams.get('view') || (requested ? 'attendance' : savedView());
+    return VIEWS.some((o) => o.key === v) ? v : 'absence';
+  });
+  const setView = (v) => {
+    setViewState(v);
+    try { localStorage.setItem('reports.view', v); } catch { /* not saved */ }
+  };
+  const [absence, setAbsence] = useState(null);
+  const [absenceLoading, setAbsenceLoading] = useState(false);
+  const [minAbsent, setMinAbsent] = useState(1);
+  const [term, setTerm] = useState(null); // { name, start, end } saved by the admin
+  const [termForm, setTermForm] = useState(null); // open editor: { name, start, end }
+  const [savingTerm, setSavingTerm] = useState(false);
 
   const [records, setRecords] = useState([]);
   const [fraudEvents, setFraudEvents] = useState([]);
@@ -119,11 +187,29 @@ export default function Reports() {
 
   useEffect(() => {
     getDepartments().then(r => setDepartments(r.data)).catch(() => {});
+    getInstitution()
+      .then((r) => {
+        const i = r.data || {};
+        if (i.term_start && i.term_end) setTerm({ name: i.term_name || 'This term', start: i.term_start, end: i.term_end });
+      })
+      .catch(() => {});
+  }, []);
+
+  const problem = rangeProblem(filters.startDate, filters.endDate);
+
+  const fetchAbsence = useCallback((f) => {
+    setAbsenceLoading(true);
+    getAbsenceReport(absenceParams(f))
+      .then((r) => setAbsence(r.data))
+      .catch((err) => {
+        setAbsence(null);
+        toast.error(err.response?.data?.error || 'Failed to load the absence report');
+      })
+      .finally(() => setAbsenceLoading(false));
   }, []);
 
   const fetchReport = useCallback((f) => {
-    const params = {};
-    Object.entries(f).forEach(([k, v]) => { if (v && String(v).trim()) params[k] = String(v).trim(); });
+    const params = cleanParams(f);
     setLoading(true);
     getAttendanceReport(params)
       .then(r => setRecords(r.data.records || []))
@@ -145,19 +231,62 @@ export default function Reports() {
       .catch(() => {});
   }, []);
 
-  // Filters apply by themselves; typing a staff ID waits until you pause
+  // Filters apply by themselves; typing a staff ID waits until you pause.
+  // Only the open view is loaded.
   const firstRun = useRef(true);
+  const needsDates = view === 'absence' && !filters.startDate;
   useEffect(() => {
+    if (problem || needsDates) return undefined;
     const delay = firstRun.current ? 0 : 400;
     firstRun.current = false;
-    const id = setTimeout(() => fetchReport(filters), delay);
+    const id = setTimeout(() => (view === 'absence' ? fetchAbsence(filters) : fetchReport(filters)), delay);
     return () => clearTimeout(id);
-  }, [filters, fetchReport]);
+  }, [filters, view, problem, needsDates, fetchReport, fetchAbsence]);
 
   const handlePeriodChange = (value) => {
+    if (value === 'this_term' && !term) {
+      // No term saved yet: ask for its dates first
+      setTermForm({ name: '', start: filters.startDate, end: filters.endDate });
+      return;
+    }
     setPeriod(value);
-    const range = periodRange(value);
+    const range = periodRange(value, term);
     setFilters(f => ({ ...f, startDate: range ? range.startDate : '', endDate: range ? range.endDate : '' }));
+  };
+
+  const saveTerm = async () => {
+    const { name, start, end } = termForm;
+    if (!start || !end) { toast.error('Enter the first and last day of the term.'); return; }
+    if (end < start) { toast.error('The term ends before it starts.'); return; }
+    setSavingTerm(true);
+    try {
+      const r = await updateTerm({ name: name.trim(), startDate: start, endDate: end });
+      const saved = { name: r.data.term_name, start: r.data.term_start, end: r.data.term_end };
+      setTerm(saved);
+      setTermForm(null);
+      setPeriod('this_term');
+      setFilters(f => ({ ...f, startDate: saved.start, endDate: saved.end }));
+      toast.success('Term dates saved');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Could not save the term dates');
+    } finally {
+      setSavingTerm(false);
+    }
+  };
+
+  const clearTerm = async () => {
+    setSavingTerm(true);
+    try {
+      await updateTerm({ clear: true });
+      setTerm(null);
+      setTermForm(null);
+      if (period === 'this_term') setPeriod('');
+      toast.success('Term dates removed');
+    } catch {
+      toast.error('Could not remove the term dates');
+    } finally {
+      setSavingTerm(false);
+    }
   };
 
   const counts = useMemo(() => {
@@ -171,47 +300,80 @@ export default function Reports() {
     ? formatDateRange(filters.startDate || filters.endDate, filters.endDate || filters.startDate)
     : 'All time';
 
+  const blocked = problem || (needsDates ? 'Pick a period (for example This month or This term) to see who was absent.' : null);
+
+  // Downloads the open report as PDF or Excel; 'print' opens the PDF in a
+  // new tab, where the browser's print button prints it
   const handleExport = async (format) => {
-    const token = localStorage.getItem('token');
-    const params = new URLSearchParams();
-    Object.entries(filters).forEach(([k, v]) => { if (v) params.append(k, v); });
+    if (blocked) { toast.error(blocked); return; }
+    const isAbsence = view === 'absence';
+    const pdf = format !== 'excel';
+    const params = new URLSearchParams(isAbsence ? absenceParams(filters) : cleanParams(filters));
+    if (isAbsence && minAbsent) params.append('minAbsent', String(minAbsent));
+    const path = isAbsence ? `absence/${pdf ? 'pdf' : 'excel'}` : (pdf ? 'pdf' : 'excel');
+    const printTab = format === 'print' ? window.open('', '_blank') : null;
     setExporting(format);
     try {
-      const res = await fetch(`${API_BASE_URL}/reports/export/${format}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/reports/export/${path}?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error(await errorMessage(res));
       const blob = await res.blob();
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      const span = filters.startDate ? `${filters.startDate}_to_${filters.endDate || filters.startDate}` : 'all-time';
-      link.download = `attendance_${span}.${format === 'excel' ? 'xlsx' : 'pdf'}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
-    } catch {
-      toast.error('Export failed. Please try again.');
+      const url = URL.createObjectURL(blob);
+      if (printTab) {
+        printTab.location.href = url;
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        const span = filters.startDate ? `${filters.startDate}_to_${params.get('endDate') || filters.startDate}` : 'all-time';
+        link.download = `${isAbsence ? 'absence' : 'attendance'}_${span}.${pdf ? 'pdf' : 'xlsx'}`;
+        link.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      if (printTab) printTab.close();
+      toast.error(err.message || 'Export failed. Please try again.');
     } finally {
       setExporting('');
     }
   };
 
   const handleWhatsAppShare = () => {
-    const lines = [
-      'GeoAttend attendance report',
-      `${rangeLabel}${filters.department ? ` · ${filters.department}` : ''}`,
-      `On time: ${counts.ontime} · Late: ${counts.late} · Absent: ${counts.absent}`,
-      `Total records: ${counts['']}`,
-    ];
+    const where = `${rangeLabel}${filters.department ? ` · ${filters.department}` : ''}`;
+    let lines;
+    if (view === 'absence' && absence) {
+      const t = absence.totals;
+      const top = absence.people.filter((p) => p.missed > 0).slice(0, 10);
+      lines = [
+        'GeoAttend absence report',
+        where,
+        `${t.withAbsences} of ${t.staffCount} staff absent at least once · ${t.absent} absent work days · ${t.late} late sign-ins`,
+        ...(top.length ? ['', 'Most absent:', ...top.map((p) => `${p.name}: ${p.missed} day${p.missed === 1 ? '' : 's'}`)] : []),
+      ];
+    } else {
+      lines = [
+        'GeoAttend attendance report',
+        where,
+        `On time: ${counts.ontime} · Late: ${counts.late} · Absent: ${counts.absent}`,
+        `Total records: ${counts['']}`,
+      ];
+    }
     window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank', 'noopener');
   };
+
+  const busy = view === 'absence' ? absenceLoading : loading;
 
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto' }}>
       <PageHeader
         title="Attendance Reports"
-        subtitle={<>Showing <strong>{rangeLabel}</strong>{loading ? ' · loading...' : ''}</>}
+        subtitle={<>Showing <strong>{rangeLabel}</strong>{busy ? ' · loading...' : ''}</>}
         actions={(
           <>
             <button type="button" className="ga-btn" style={{ color: '#128C7E' }} onClick={handleWhatsAppShare}>
               <FiShare2 size={14} /> WhatsApp
+            </button>
+            <button type="button" className="ga-btn" onClick={() => handleExport('print')} disabled={!!exporting}>
+              <FiPrinter size={14} /> {exporting === 'print' ? 'Preparing...' : 'Print'}
             </button>
             <button type="button" className="ga-btn ga-btn-green" onClick={() => handleExport('excel')} disabled={!!exporting}>
               <FiDownload size={14} /> {exporting === 'excel' ? 'Preparing...' : 'Excel'}
@@ -223,13 +385,31 @@ export default function Reports() {
         )}
       />
 
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }} role="tablist">
+        {VIEWS.map((v) => (
+          <button
+            key={v.key}
+            type="button"
+            role="tab"
+            aria-selected={view === v.key}
+            className={`ga-chip${view === v.key ? ' is-active' : ''}`}
+            style={{ fontSize: 13.5, padding: '8px 16px' }}
+            onClick={() => setView(v.key)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
       <div style={styles.filters}>
         <div style={styles.field}>
           <label style={styles.label} htmlFor="rep-period">Period</label>
           <select id="rep-period" style={styles.select} value={period} onChange={e => handlePeriodChange(e.target.value)}>
             {PERIOD_OPTIONS.map(o => (
               <option key={o.value || 'all'} value={o.value}>
-                {o.value === '' && (filters.startDate || filters.endDate) ? 'Custom dates' : o.label}
+                {o.value === '' && (filters.startDate || filters.endDate) ? 'Custom dates'
+                  : o.value === 'this_term' ? (term ? `This term (${term.name})` : 'This term (set its dates)')
+                    : o.label}
               </option>
             ))}
           </select>
@@ -271,13 +451,75 @@ export default function Reports() {
             onChange={e => setFilters(f => ({ ...f, staffId: e.target.value.toUpperCase() }))}
           />
         </div>
-        <div style={{ ...styles.field, justifyContent: 'flex-end' }}>
-          <span style={{ fontSize: 12, color: '#95a5a6', display: 'inline-flex', alignItems: 'center', gap: 6, paddingBottom: 9 }}>
+        <div style={{ ...styles.field, justifyContent: 'flex-end', gap: 6 }}>
+          <button
+            type="button"
+            className="ga-btn ga-btn-sm"
+            onClick={() => setTermForm(term ? { ...term } : { name: '', start: filters.startDate, end: filters.endDate })}
+          >
+            <FiCalendar size={12} /> {term ? 'Change term dates' : 'Set term dates'}
+          </button>
+          <span style={{ fontSize: 12, color: '#95a5a6', display: 'inline-flex', alignItems: 'center', gap: 6, paddingBottom: 4 }}>
             <FiFilter size={12} /> Updates as you change filters
           </span>
         </div>
       </div>
 
+      {termForm && (
+        <div className="ga-card" style={{ padding: 16, marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flexBasis: '100%', fontSize: 13, color: '#5d6d7e' }}>
+            Save the current term's dates once, then pick <strong>This term</strong> under Period to report on the whole term.
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label} htmlFor="term-name">Term name</label>
+            <input id="term-name" style={styles.input} placeholder="e.g. First term 2026/27" maxLength={60}
+              value={termForm.name} onChange={e => setTermForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label} htmlFor="term-start">First day</label>
+            <input id="term-start" style={styles.input} type="date"
+              value={termForm.start || ''} onChange={e => setTermForm(f => ({ ...f, start: e.target.value }))} />
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label} htmlFor="term-end">Last day</label>
+            <input id="term-end" style={styles.input} type="date"
+              value={termForm.end || ''} onChange={e => setTermForm(f => ({ ...f, end: e.target.value }))} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="ga-btn ga-btn-primary" onClick={saveTerm} disabled={savingTerm}>
+              {savingTerm ? 'Saving...' : 'Save term'}
+            </button>
+            <button type="button" className="ga-btn" onClick={() => setTermForm(null)} disabled={savingTerm}>Cancel</button>
+            {term && (
+              <button type="button" className="ga-btn ga-btn-red" onClick={clearTerm} disabled={savingTerm}>Remove</button>
+            )}
+          </div>
+          {term && (
+            <div style={{ flexBasis: '100%', fontSize: 12, color: '#95a5a6' }}>
+              Saved now: {term.name}, {formatDay(term.start)} to {formatDay(term.end)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {problem && (
+        <div className="ga-card" style={{ padding: '12px 16px', marginBottom: 14, color: '#c0392b', background: '#fdecea', fontSize: 13.5 }}>
+          {problem}
+        </div>
+      )}
+
+      {view === 'absence' && !problem && (
+        <AbsenceReport
+          data={absence}
+          loading={absenceLoading}
+          message={blocked}
+          minAbsent={minAbsent}
+          onMinAbsentChange={setMinAbsent}
+        />
+      )}
+
+      {view === 'attendance' && (
+      <>
       <WeekByWeek data={weekly} loading={weeklyLoading} />
 
       <h2 style={{ fontSize: 16, margin: '8px 0 10px', color: '#2c3e50' }}>Sign-in records</h2>
@@ -401,6 +643,8 @@ export default function Reports() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   );
 }

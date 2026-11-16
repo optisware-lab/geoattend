@@ -1,8 +1,58 @@
 const pool = require('../config/database');
 const excel4node = require('excel4node');
-const { formatDate, formatDateRange, formatTime } = require('../utils/dateFormat');
-const { loadAttendanceData, buildWeeklyBreakdown } = require('../services/attendanceSummary');
-const { renderAttendancePdf } = require('../services/attendancePdf');
+const { formatDate, formatDateRange, formatTime, dayKey } = require('../utils/dateFormat');
+const { loadAttendanceData, buildWeeklyBreakdown, buildAbsenceReport } = require('../services/attendanceSummary');
+const { renderAttendancePdf, renderAbsencePdf } = require('../services/attendancePdf');
+
+// Longest period a report can cover (a full school year fits)
+const MAX_RANGE_DAYS = 366;
+
+function isCalendarDay(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCFullYear() === Number(m[1]) && d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]);
+}
+
+function daysBetween(a, b) {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
+}
+
+/**
+ * Report filters from the query string, with the dates checked.
+ * Returns { filters } or { error } (a message for the admin).
+ */
+function reportFilters(query, { requireDates = false } = {}) {
+  const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const filters = {
+    startDate: clean(query.startDate),
+    endDate: clean(query.endDate),
+    department: clean(query.department),
+    staffId: clean(query.staffId),
+  };
+  for (const key of ['startDate', 'endDate']) {
+    if (filters[key] && !isCalendarDay(filters[key])) return { error: 'Dates must be real days written as YYYY-MM-DD, e.g. 2026-09-10.' };
+  }
+  if (requireDates && (!filters.startDate || !filters.endDate)) return { error: 'Pick a start date and an end date.' };
+  if (filters.startDate) {
+    const end = filters.endDate || dayKey(new Date());
+    if (end < filters.startDate) return { error: 'The end date is before the start date.' };
+    const days = daysBetween(filters.startDate, end);
+    if (days > MAX_RANGE_DAYS) return { error: `A report can cover up to one year. This period is ${days} days; please shorten it.` };
+  }
+  return { filters };
+}
+
+/** "Absent at least N work days" filter (0 = all staff) */
+function minAbsentOf(query) {
+  const n = parseInt(query.minAbsent, 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, MAX_RANGE_DAYS) : 0;
+}
+
+function showLabelOf(minAbsent) {
+  if (!minAbsent) return 'all staff';
+  return minAbsent === 1 ? 'staff absent at least once' : `staff absent ${minAbsent} or more work days`;
+}
 
 exports.getDashboardStats = async (req, res) => {
   try {
@@ -130,6 +180,8 @@ exports.getFraudReport = async (req, res) => {
 exports.getAttendanceReport = async (req, res) => {
   try {
     const { startDate, endDate, department, staffId, page = 1, limit = 50 } = req.query;
+    const { error } = reportFilters(req.query);
+    if (error) return res.status(400).json({ error });
     const institutionId = req.user.institution_id;
     const offset = (page - 1) * limit;
 
@@ -293,22 +345,13 @@ exports.getWeeklySummary = async (req, res) => {
   }
 };
 
-function reportFilters(query) {
-  const clean = (v) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
-  return {
-    startDate: clean(query.startDate),
-    endDate: clean(query.endDate),
-    department: clean(query.department),
-    staffId: clean(query.staffId),
-  };
-}
-
 // Week-by-week view for the dashboard: who signed in each week, who didn't
 exports.getWeeklyBreakdown = async (req, res) => {
   try {
-    const filters = reportFilters(req.query);
+    const { filters, error } = reportFilters(req.query);
+    if (error) return res.status(400).json({ error });
     const data = await loadAttendanceData(req.tenantDb, req.user.institution_id, filters);
-    const summary = buildWeeklyBreakdown(data, filters);
+    const { people, ...summary } = buildWeeklyBreakdown(data, filters);
 
     // The dashboard needs each person's day marks, not the full records
     res.json({
@@ -331,9 +374,125 @@ exports.getWeeklyBreakdown = async (req, res) => {
 
 const CELL_TEXT = { leave: 'Leave', absent: 'Absent' };
 
+// Absence report: each staff member's absent, present, late and leave days
+// for the chosen period, most absent first
+async function loadAbsenceReport(req) {
+  const { filters, error } = reportFilters(req.query, { requireDates: true });
+  if (error) return { error };
+  const minAbsent = minAbsentOf(req.query);
+  const data = await loadAttendanceData(req.tenantDb, req.user.institution_id, filters);
+  const report = buildAbsenceReport(buildWeeklyBreakdown(data, filters), { minAbsent });
+  return { filters, minAbsent, data, report };
+}
+
+exports.getAbsenceReport = async (req, res) => {
+  try {
+    const { error, report } = await loadAbsenceReport(req);
+    if (error) return res.status(400).json({ error });
+    res.json(report);
+  } catch (err) {
+    console.error('Absence report error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.exportAbsencePDF = async (req, res) => {
+  try {
+    const { error, filters, minAbsent, data, report } = await loadAbsenceReport(req);
+    if (error) return res.status(400).json({ error });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=absence_report_${report.start}_to_${report.end}.pdf`);
+    renderAbsencePdf(res, {
+      institutionName: data.institutionName,
+      institutionLogo: data.institutionLogo,
+      report,
+      department: filters.department,
+      showLabel: showLabelOf(minAbsent),
+    });
+  } catch (err) {
+    console.error('Absence PDF error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Server error' });
+  }
+};
+
+exports.exportAbsenceExcel = async (req, res) => {
+  try {
+    const { error, filters, minAbsent, data, report } = await loadAbsenceReport(req);
+    if (error) return res.status(400).json({ error });
+
+    const wb = new excel4node.Workbook();
+    const headerStyle = wb.createStyle({
+      font: { bold: true, size: 11, color: '#ffffff' },
+      fill: { type: 'pattern', patternType: 'solid', fgColor: '#1a5276' },
+      alignment: { horizontal: 'center' },
+    });
+    const titleStyle = wb.createStyle({ font: { bold: true, size: 14, color: '#1a5276' } });
+    const redStyle = wb.createStyle({ font: { bold: true, color: '#c0392b' } });
+
+    const ws = wb.addWorksheet('Absence');
+    [6, 30, 12, 20, 11, 10, 8, 8, 9, 9, 60].forEach((w, i) => ws.column(i + 1).setWidth(w));
+    let r = 1;
+    ws.cell(r, 1, r, 11, true).string(`${data.institutionName} - Absence report`).style(titleStyle);
+    r += 1;
+    ws.cell(r, 1, r, 11, true).string(`Period: ${formatDateRange(report.start, report.end)}`);
+    r += 1;
+    ws.cell(r, 1, r, 11, true).string(
+      [filters.department && `Department: ${filters.department}`, `Showing: ${showLabelOf(minAbsent)}`].filter(Boolean).join('   ·   ')
+    );
+    r += 1;
+    const t = report.totals;
+    ws.cell(r, 1, r, 11, true).string(
+      `${report.workDayCount} work days. ${t.withAbsences} of ${t.staffCount} staff were absent at least once. `
+      + `Absent work days: ${t.absent}. Late sign-ins: ${t.late}. Leave days: ${t.leave}. `
+      + `Attendance rate: ${t.rate == null ? '-' : `${t.rate}%`}.`
+    );
+    r += 2;
+    ['#', 'Name', 'Staff ID', 'Department', 'Work days', 'Present', 'Late', 'Leave', 'Absent', 'Rate %', 'Days absent']
+      .forEach((h, i) => ws.cell(r, i + 1).string(h).style(headerStyle));
+    r += 1;
+    report.people.forEach((p, i) => {
+      ws.cell(r, 1).number(i + 1);
+      ws.cell(r, 2).string(p.name);
+      ws.cell(r, 3).string(p.staffId || '');
+      ws.cell(r, 4).string(p.department || '');
+      ws.cell(r, 5).number(p.expected);
+      ws.cell(r, 6).number(p.daysIn);
+      ws.cell(r, 7).number(p.late);
+      ws.cell(r, 8).number(p.leave);
+      const absent = ws.cell(r, 9).number(p.missed);
+      if (p.missed) absent.style(redStyle);
+      if (p.rate != null) ws.cell(r, 10).number(p.rate);
+      ws.cell(r, 11).string(p.absentDates.map((d) => formatDate(d)).join('; '));
+      r += 1;
+    });
+
+    // One line per absent day, easy to sort and filter
+    const days = wb.addWorksheet('Days absent');
+    [20, 30, 12, 20].forEach((w, i) => days.column(i + 1).setWidth(w));
+    ['Date', 'Name', 'Staff ID', 'Department'].forEach((h, i) => days.cell(1, i + 1).string(h).style(headerStyle));
+    const lines = report.people.flatMap((p) => p.absentDates.map((d) => ({ d, p })))
+      .sort((a, b) => a.d.localeCompare(b.d) || a.p.name.localeCompare(b.p.name));
+    lines.forEach(({ d, p }, i) => {
+      days.cell(i + 2, 1).string(formatDate(d));
+      days.cell(i + 2, 2).string(p.name);
+      days.cell(i + 2, 3).string(p.staffId || '');
+      days.cell(i + 2, 4).string(p.department || '');
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=absence_report_${report.start}_to_${report.end}.xlsx`);
+    wb.write(`absence_report_${report.start}_to_${report.end}.xlsx`, res);
+  } catch (err) {
+    console.error('Absence Excel error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.exportExcel = async (req, res) => {
   try {
-    const filters = reportFilters(req.query);
+    const { filters, error } = reportFilters(req.query);
+    if (error) return res.status(400).json({ error });
     const { startDate, endDate } = filters;
     const institutionId = req.user.institution_id;
 
@@ -505,7 +664,8 @@ exports.exportExcel = async (req, res) => {
 
 exports.exportPDF = async (req, res) => {
   try {
-    const filters = reportFilters(req.query);
+    const { filters, error } = reportFilters(req.query);
+    if (error) return res.status(400).json({ error });
     const data = await loadAttendanceData(req.tenantDb, req.user.institution_id, filters);
     const summary = buildWeeklyBreakdown(data, filters);
 
