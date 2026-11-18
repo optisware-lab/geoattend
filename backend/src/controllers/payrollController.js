@@ -16,25 +16,27 @@
 
 const isDateParam = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-function resolveRange(period, anchorDate) {
+// `dateParam` is the query parameter number that holds the anchor date
+function resolveRange(period, anchorDate, dateParam = 2) {
   const anchor = isDateParam(anchorDate) ? anchorDate : new Date().toISOString().split('T')[0];
+  const d = `$${dateParam}::date`;
   let startSql;
   if (period === 'day') {
-    startSql = `$2::date`;
+    startSql = d;
   } else if (period === 'week') {
-    startSql = `date_trunc('week', $2::date)::date`;
+    startSql = `date_trunc('week', ${d})::date`;
   } else {
     // month
-    startSql = `date_trunc('month', $2::date)::date`;
+    startSql = `date_trunc('month', ${d})::date`;
   }
   // end of range: day → same day; week → +6 days; month → last day of month
   let endSql;
   if (period === 'day') {
-    endSql = `$2::date`;
+    endSql = d;
   } else if (period === 'week') {
-    endSql = `date_trunc('week', $2::date)::date + INTERVAL '6 days'`;
+    endSql = `date_trunc('week', ${d})::date + INTERVAL '6 days'`;
   } else {
-    endSql = `(date_trunc('month', $2::date) + INTERVAL '1 month - 1 day')::date`;
+    endSql = `(date_trunc('month', ${d}) + INTERVAL '1 month - 1 day')::date`;
   }
   return { anchor, startSql, endSql };
 }
@@ -130,7 +132,7 @@ exports.summary = async (req, res) => {
        LEFT JOIN overtime o ON o.staff_uuid = s.id
        LEFT JOIN away a ON a.staff_uuid = s.id
        WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
-         AND ($4::text IS NULL OR s.department = $4)
+         AND ($3::text IS NULL OR s.department = $3)
        ORDER BY s.last_name, s.first_name`,
       [req.user.institution_id, anchor, department]
     );
@@ -207,7 +209,7 @@ exports.summaryCsv = async (req, res) => {
        LEFT JOIN overtime o ON o.staff_uuid = s.id
        LEFT JOIN away a ON a.staff_uuid = s.id
        WHERE s.institution_id = $1 AND s.member_type = 'staff' AND s.is_active = true
-         AND ($4::text IS NULL OR s.department = $4)
+         AND ($3::text IS NULL OR s.department = $3)
        ORDER BY s.last_name, s.first_name`,
       [req.user.institution_id, anchor, department]
     );
@@ -237,7 +239,8 @@ exports.myEarnings = async (req, res) => {
   try {
     const period = ['day', 'week', 'month'].includes(req.query.period) ? req.query.period : 'month';
     const pay = await loadPaySettings(db, req.user.institution_id);
-    const { anchor, startSql, endSql } = resolveRange(period, req.query.date);
+    // Here the date is $3 ($1 staff, $2 institution)
+    const { anchor, startSql, endSql } = resolveRange(period, req.query.date, 3);
 
     const result = await db.query(
       `SELECT ar.date,
@@ -273,8 +276,10 @@ exports.myEarnings = async (req, res) => {
     });
 
     const totalHours = daily.reduce((sum, d) => sum + (d.hours || 0), 0);
+    // This query has only two parameters ($1 staff, $2 date)
+    const ot = resolveRange(period, req.query.date, 2);
     const otResult = await db.query(
-      `SELECT SUM(overtime_minutes) AS ot FROM overtime_records WHERE staff_uuid = $1 AND date >= ${startSql} AND date <= ${endSql}`,
+      `SELECT SUM(overtime_minutes) AS ot FROM overtime_records WHERE staff_uuid = $1 AND date >= ${ot.startSql} AND date <= ${ot.endSql}`,
       [req.user.id, anchor]
     );
     const overtimeHours = (parseInt(otResult.rows[0]?.ot || 0, 10)) / 60;
