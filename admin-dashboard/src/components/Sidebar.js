@@ -51,20 +51,36 @@ const styles = {
     background: 'rgba(0,0,0,0.5)',
     zIndex: 999,
   },
-  hamburger: {
+  topBar: {
     position: 'fixed',
-    top: '12px',
-    left: '12px',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '52px',
     zIndex: 1001,
-    background: '#1a5276',
+    background: 'linear-gradient(180deg, #1a5276 0%, #154360 100%)',
     color: '#fff',
-    width: '40px',
-    height: '40px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '0 12px 0 6px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+  },
+  menuBtn: {
+    position: 'relative',
+    background: 'transparent',
+    color: '#fff',
+    width: '44px',
+    height: '44px',
     borderRadius: '8px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+    flexShrink: 0,
+  },
+  menuDot: {
+    position: 'absolute', top: 9, right: 8, width: 9, height: 9, borderRadius: '50%',
+    background: '#f39c12', border: '2px solid #1a5276',
   },
   logo: {
     padding: '24px 20px',
@@ -163,7 +179,8 @@ export default function Sidebar({ user, onLogout }) {
 
   const sidebarStyle = {
     ...styles.sidebar,
-    ...(isMobile ? { transform: open ? 'translateX(0)' : 'translateX(-100%)' } : {}),
+    // Phone: slides in below the top bar, which keeps the close button
+    ...(isMobile ? { top: '52px', transform: open ? 'translateX(0)' : 'translateX(-100%)' } : {}),
   };
   // Build nav items; add "Request Leave" for non-admin roles
   const finalNavItems = [...navItems];
@@ -191,9 +208,28 @@ export default function Sidebar({ user, onLogout }) {
   return (
     <>
       {isMobile && (
-        <button style={styles.hamburger} onClick={() => setOpen(!open)}>
-          {open ? <FiX size={22} /> : <FiMenu size={22} />}
-        </button>
+        // Phone: a bar across the top, so the menu button never covers the page
+        <header style={styles.topBar}>
+          <button
+            type="button"
+            style={styles.menuBtn}
+            onClick={() => setOpen(!open)}
+            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-expanded={open}
+          >
+            {open ? <FiX size={22} /> : <FiMenu size={22} />}
+            {!open && pendingLeave > 0 && <span style={styles.menuDot} aria-hidden="true" />}
+          </button>
+          <InstitutionLogo
+            institutionId={user?.institutionId}
+            size={28}
+            style={{ background: '#fff', borderRadius: 6, padding: 2 }}
+            fallback={<FiMapPin size={20} />}
+          />
+          <span style={{ fontWeight: 700, fontSize: 16, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {(finalNavItems.find((i) => (i.path === '/' ? location.pathname === '/' : location.pathname.startsWith(i.path))) || {}).label || 'GeoAttend'}
+          </span>
+        </header>
       )}
 
       {isMobile && open && <div style={styles.overlay} onClick={() => setOpen(false)} />}

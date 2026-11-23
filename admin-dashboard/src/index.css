@@ -35,9 +35,69 @@ input, select, textarea {
   to { transform: rotate(360deg); }
 }
 
+/* ---------- Phone layout ----------
+   Tables become one card per row, each value labelled with its column name
+   (labels come from components/tableLabels.js). Inline styles on the pages
+   need !important to be overridden here. A table that should stay a grid on
+   phones (e.g. a day-by-day chart) can opt out with class "ga-keep-table",
+   which scrolls sideways instead. */
 @media (max-width: 768px) {
   main { overflow-x: hidden; }
-  main table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  main img, main video, main canvas, main svg { max-width: 100%; }
+  main input, main select, main textarea, main button { max-width: 100%; }
+  main input, main select, main textarea { font-size: 16px !important; } /* stops iPhone zooming in on tap */
+
+  /* Side-by-side columns stack on a phone */
+  main [style*="grid-template-columns: 1fr 1fr"],
+  main [style*="grid-template-columns: 2fr 1fr"],
+  main [style*="grid-template-columns: 1fr 2fr"],
+  main [style*="grid-template-columns: 1fr 300px"],
+  main [style*="grid-template-columns: 1fr 1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+  /* Fixed-width boxes (search fields, panels) shrink to the screen */
+  main [style*="width: 320px"], main [style*="width: 300px"], main [style*="width: 380px"],
+  main [style*="width: 400px"], main [style*="width: 420px"], main [style*="width: 440px"] {
+    width: 100% !important;
+  }
+  main [style*="max-width: 900px"], main [style*="max-width: 700px"] { max-width: 100% !important; }
+  main [style*="padding: 32px"] { padding: 18px !important; }
+
+  /* Page headers: title above, buttons below and wrapping */
+  main h1 { font-size: 21px !important; }
+
+  /* Table -> cards */
+  main table:not(.ga-keep-table) { display: block; width: 100% !important; min-width: 0 !important; background: transparent !important; box-shadow: none !important; border-radius: 0 !important; overflow: visible !important; }
+  main table:not(.ga-keep-table) thead { display: none; }
+  main table:not(.ga-keep-table) tbody, main table:not(.ga-keep-table) tfoot { display: block; }
+  main table:not(.ga-keep-table) tr {
+    display: block; background: #fff !important; border: 1px solid var(--ga-border); border-radius: 12px;
+    padding: 8px 14px; margin-bottom: 10px; box-shadow: var(--ga-card-shadow);
+  }
+  main table:not(.ga-keep-table) td {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 14px;
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+    padding: 7px 0 !important; border: none !important; border-bottom: 1px solid #f2f4f6 !important;
+    text-align: right !important; font-size: 14px; white-space: normal !important; word-break: break-word;
+  }
+  main table:not(.ga-keep-table) td:last-child { border-bottom: none !important; }
+  main table:not(.ga-keep-table) td::before {
+    content: attr(data-label); flex: 0 0 auto; max-width: 45%; text-align: left;
+    font-size: 11.5px; font-weight: 700; color: var(--ga-muted); text-transform: uppercase; letter-spacing: 0.3px; padding-top: 2px;
+  }
+  main table:not(.ga-keep-table) td[data-label=""]::before, main table:not(.ga-keep-table) td:not([data-label])::before { display: none; }
+  /* Cells with no label (whole-row messages, action buttons) use the full width */
+  main table:not(.ga-keep-table) td[data-label=""], main table:not(.ga-keep-table) td:not([data-label]) { justify-content: center; text-align: center !important; }
+  main table:not(.ga-keep-table) td > div, main table:not(.ga-keep-table) td > span { text-align: right; }
+  main table:not(.ga-keep-table) td button, main table:not(.ga-keep-table) td a { min-height: 34px; }
+  /* Empty-list row: no card frame */
+  main table:not(.ga-keep-table) tr:only-child td[colspan] { color: var(--ga-faint); }
+
+  /* Opted-out tables scroll sideways inside their card */
+  main table.ga-keep-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Pop-up windows fit the screen */
+  [role="dialog"], .ga-card[role="dialog"] { max-width: calc(100vw - 24px) !important; }
 }
 
 

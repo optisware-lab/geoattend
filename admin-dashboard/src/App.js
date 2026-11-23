@@ -21,12 +21,15 @@ import AuditLog from './pages/AuditLog';
 import Payroll from './pages/Payroll';
 import Sidebar from './components/Sidebar';
 import { useIsMobile } from './components/ui';
+import { useTableLabels } from './components/tableLabels';
 import { authSession, refreshSession } from './services/api';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const isMobile = useIsMobile();
+  // On phones each table row is shown as a card; this labels every value
+  useTableLabels();
 
   useEffect(() => {
     const stored = authSession.user();
