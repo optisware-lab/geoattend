@@ -288,6 +288,45 @@ async function findStaffForGoogle(google, institution) {
 
 const PHONE_PATTERN = /^\+?[0-9][0-9\s-]{6,18}[0-9]$/;
 
+// Ghana numbers are written as 0550687839 or +233550687839; the last 9
+// digits are the same either way, so compare on those.
+const PHONE_KEY_SQL = "RIGHT(regexp_replace(COALESCE(s.phone, ''), '[^0-9]', '', 'g'), 9)";
+const phoneKey = (phone) => String(phone || '').replace(/\D/g, '').slice(-9);
+
+/**
+ * Finds an account at this institution that already uses the email or phone,
+ * so the same person can't sign up a second time with another Google account
+ * or a password. Returns a 409 { status, error } or null.
+ */
+async function findDuplicateSignup(institutionId, { email, phone, excludeId = null }) {
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  const key = phoneKey(phone);
+  if (!cleanEmail && key.length < 9) return null;
+
+  const { rows } = await pool.query(
+    `SELECT s.staff_id, s.google_id IS NOT NULL AS uses_google,
+            ($2 <> '' AND LOWER(s.email) = $2) AS email_match
+       FROM staff s
+      WHERE s.institution_id = $1
+        AND ($4::uuid IS NULL OR s.id <> $4::uuid)
+        AND (($2 <> '' AND LOWER(s.email) = $2) OR (LENGTH($3) = 9 AND ${PHONE_KEY_SQL} = $3))
+      ORDER BY s.created_at
+      LIMIT 1`,
+    [institutionId, cleanEmail, key, excludeId]
+  );
+  if (rows.length === 0) return null;
+
+  const match = rows[0];
+  const what = match.email_match ? 'email address' : 'phone number';
+  const how = match.uses_google
+    ? 'Sign in with Google using the account you used before'
+    : `Log in with Staff ID ${match.staff_id}, or use Forgot Password`;
+  return {
+    status: 409,
+    error: `This ${what} is already registered (Staff ID ${match.staff_id}). ${how}. If this isn't you, ask your admin.`,
+  };
+}
+
 /**
  * Step 1 of Google login / sign-up. Signs in a linked account that has a
  * phone number on file; otherwise asks the app to collect the missing details
@@ -373,6 +412,8 @@ const completeGoogleSignupHandler = async (req, res) => {
 
     if (found.staff) {
       staffUuid = found.staff.id;
+      const dup = await findDuplicateSignup(found.staff.institution_id, { phone: cleanPhone, excludeId: staffUuid });
+      if (dup) return res.status(dup.status).json({ error: dup.error });
       await pool.query(
         `UPDATE staff SET phone = $1,
            first_name = COALESCE(NULLIF($2, ''), first_name),
@@ -389,6 +430,9 @@ const completeGoogleSignupHandler = async (req, res) => {
       if (!cleanFirstName || !cleanLastName) {
         return res.status(400).json({ error: 'First name and last name are required' });
       }
+
+      const dup = await findDuplicateSignup(institution.id, { email: google.email, phone: cleanPhone });
+      if (dup) return res.status(dup.status).json({ error: dup.error });
 
       // Staff IDs follow the school's pattern (e.g. RSS001). A typed ID that
       // doesn't is kept as an extra login ID, and a proper one is assigned.
@@ -475,6 +519,9 @@ const registerHandler = async (req, res) => {
     if (existing.rows.length > 0) {
       return res.status(409).json({ error: 'Staff ID already registered. Please login or contact admin.' });
     }
+
+    const dup = await findDuplicateSignup(institutionId, { email, phone });
+    if (dup) return res.status(dup.status).json({ error: dup.error });
 
     // IDs follow the school's pattern (e.g. RSS001). The ID they typed still
     // works for logging in, so the app can sign them straight in with it.
