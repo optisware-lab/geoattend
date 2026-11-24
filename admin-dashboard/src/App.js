@@ -22,7 +22,16 @@ import Payroll from './pages/Payroll';
 import Sidebar from './components/Sidebar';
 import { useIsMobile } from './components/ui';
 import { useTableLabels } from './components/tableLabels';
+import { useInstitutionType, clearInstitutionType } from './components/useInstitution';
+
 import { authSession, refreshSession } from './services/api';
+
+/** Leave pages only for businesses; at a school they go back to the dashboard. */
+function LeaveOnly({ children }) {
+  const { leaveEnabled, known } = useInstitutionType();
+  if (!known) return null;
+  return leaveEnabled ? children : <Navigate to="/" replace />;
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -51,6 +60,7 @@ function App() {
   };
 
   const handleLogout = () => {
+    clearInstitutionType();
     setUser(null);
     authSession.clear();
   };
@@ -116,8 +126,8 @@ function App() {
             <Route path="/manage-staff/:id/edit" element={<StaffForm />} />
             <Route path="/attendance" element={<AttendanceMonitor />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/leave" element={<LeaveManagement />} />
-            <Route path="/request-leave" element={<RequestLeave />} />
+            <Route path="/leave" element={<LeaveOnly><LeaveManagement /></LeaveOnly>} />
+            <Route path="/request-leave" element={<LeaveOnly><RequestLeave /></LeaveOnly>} />
             <Route path="/institutions/new" element={<CreateInstitution />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/payroll" element={<Payroll />} />

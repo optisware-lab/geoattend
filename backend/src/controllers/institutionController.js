@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { normalizeInstitutionType, guessInstitutionType, leaveEnabledFor } = require('../utils/institutionType');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
@@ -219,6 +220,7 @@ exports.createInstitution = async (req, res) => {
   await pool.applyTenantContext(client, { bypass: true }).catch(() => {});
   try {
     const { name, address, city, region, latitude, longitude, geofenceRadius, requestId } = req.body;
+    const institutionType = normalizeInstitutionType(req.body.institutionType) || guessInstitutionType(name);
 
     if (!name || !latitude || !longitude) {
       return res.status(400).json({ error: 'Name, latitude, and longitude are required' });
@@ -240,10 +242,10 @@ exports.createInstitution = async (req, res) => {
       institutionCode = await generateInstitutionCode(req.tenantDb, name);
       try {
         const result = await client.query(
-          `INSERT INTO institutions (id, name, institution_code, address, city, region, latitude, longitude, geofence_radius)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `INSERT INTO institutions (id, name, institution_code, address, city, region, latitude, longitude, geofence_radius, institution_type)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
            RETURNING *`,
-          [id, name, institutionCode, address || null, city || null, region || null, latitude, longitude, geofenceRadius || 200]
+          [id, name, institutionCode, address || null, city || null, region || null, latitude, longitude, geofenceRadius || 200, institutionType]
         );
         created = result.rows[0];
       } catch (insertErr) {
@@ -944,5 +946,24 @@ exports.getLogo = async (req, res) => {
   } catch (err) {
     console.error('Get logo error:', err);
     res.status(500).end();
+  }
+};
+
+/** Super admin: mark an institution as a school or a business (schools don't use leave). */
+exports.setInstitutionType = async (req, res) => {
+  const { id } = req.params;
+  const type = normalizeInstitutionType(req.body?.type);
+  if (!UUID_PATTERN.test(String(id))) return res.status(404).json({ error: 'Institution not found' });
+  if (!type) return res.status(400).json({ error: 'Type must be "school" or "business"' });
+  try {
+    const r = await req.tenantDb.query(
+      'UPDATE institutions SET institution_type = $2, updated_at = NOW() WHERE id = $1 RETURNING id, name, institution_type',
+      [id, type]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Institution not found' });
+    res.json({ id, type, leaveEnabled: leaveEnabledFor(type), message: `${r.rows[0].name} is now a ${type}` });
+  } catch (err) {
+    console.error('Set institution type error:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 };

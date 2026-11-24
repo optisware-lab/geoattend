@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FiUserX } from 'react-icons/fi';
 import { formatWeekdayDay } from '../utils/format';
+import { useInstitutionType } from './useInstitution';
 
 // Who was absent in the chosen period, with present, late and leave days
 // alongside so the admin can decide what to do. Most absent first.
@@ -37,6 +38,7 @@ const DATES_SHOWN = 4;
 
 export default function AbsenceReport({ data, loading, message, minAbsent, onMinAbsentChange }) {
   const [expanded, setExpanded] = useState(() => new Set());
+  const { leaveEnabled } = useInstitutionType();
 
   const counts = useMemo(() => {
     const people = data?.people || [];
@@ -73,7 +75,7 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
         <Tile label="Staff with absences" value={t.withAbsences} color="#c0392b" sub={`of ${t.staffCount} staff`} />
         <Tile label="Absences (all staff)" value={t.absent} color="#c0392b" sub={`of ${staffDays} staff-days · ${perPerson(t.absent, t.staffCount)} each`} />
         <Tile label="Late sign-ins (all staff)" value={t.late} color="#c0640f" sub={`${perPerson(t.late, t.staffCount)} each on average`} />
-        <Tile label="Leave days (all staff)" value={t.leave} color="#2471a3" />
+        {leaveEnabled && <Tile label="Leave days (all staff)" value={t.leave} color="#2471a3" />}
         <Tile label="Attendance rate" value={t.rate == null ? '-' : `${t.rate}%`} color={rateColor(t.rate)} sub="days present ÷ staff-days" />
       </div>
 
@@ -100,7 +102,7 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
               <th style={num}>Work days</th>
               <th style={num}>Present</th>
               <th style={num}>Late</th>
-              <th style={num}>Leave</th>
+              {leaveEnabled && <th style={num}>Leave</th>}
               <th style={num}>Absent</th>
               <th style={num}>Rate</th>
               <th>Days absent</th>
@@ -122,7 +124,7 @@ export default function AbsenceReport({ data, loading, message, minAbsent, onMin
                   <td style={num}>{p.expected}</td>
                   <td style={{ ...num, color: '#1e8449', fontWeight: 600 }}>{p.daysIn}</td>
                   <td style={{ ...num, color: p.late ? '#c0640f' : '#b0b8bf', fontWeight: p.late ? 700 : 400 }}>{p.late}</td>
-                  <td style={{ ...num, color: p.leave ? '#2471a3' : '#b0b8bf' }}>{p.leave}</td>
+                  {leaveEnabled && <td style={{ ...num, color: p.leave ? '#2471a3' : '#b0b8bf' }}>{p.leave}</td>}
                   <td style={{ ...num, color: p.missed ? '#c0392b' : '#b0b8bf', fontWeight: 800, fontSize: 14 }}>{p.missed}</td>
                   <td style={{ ...num, color: rateColor(p.rate), fontWeight: 700 }}>{p.rate == null ? '-' : `${p.rate}%`}</td>
                   <td style={{ fontSize: 12.5, color: '#5d6d7e', minWidth: 220 }}>

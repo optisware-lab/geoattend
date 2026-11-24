@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { normalizeInstitutionType, guessInstitutionType, leaveEnabledFor } = require('../utils/institutionType');
 const { sendExpoPushNotifications } = require('../services/pushNotificationService');
 const { sendEmail } = require('../services/emailService');
 const { formatDateRange } = require('../utils/dateFormat');
@@ -98,6 +99,11 @@ function notifyRequesterOfReview(id, status, reviewNote) {
 exports.requestLeave = async (req, res) => {
   const db = req.tenantDb;
   try {
+    // Schools don't use leave requests (the apps hide the option there)
+    const inst = await db.query('SELECT institution_type FROM institutions WHERE id = $1', [req.user.institution_id]);
+    if (!leaveEnabledFor(inst.rows[0]?.institution_type)) {
+      return res.status(403).json({ error: 'Leave requests are not used at schools. Please speak to your head teacher.' });
+    }
     const { leaveType, reason } = req.body || {};
     const startDate = calendarDate(req.body?.startDate);
     const endDate = calendarDate(req.body?.endDate);

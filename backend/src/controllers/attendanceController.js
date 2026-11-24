@@ -1,4 +1,5 @@
 const { isWithinGeofence } = require('../utils/geofence');
+const { normalizeInstitutionType, guessInstitutionType, leaveEnabledFor } = require('../utils/institutionType');
 const { decodeQrFromBuffer } = require('../utils/qrDecoder');
 const { normalizeSelfie, SELFIE_RETENTION_DAYS } = require('../utils/selfie');
 const { sendServerError } = require('../utils/serverError');
@@ -94,13 +95,14 @@ async function loadEarningsContext(db, institutionId, staffUuid) {
 /** What a sign-in must include for this institution (the photo, unless the admin turns it off). */
 async function getCheckInRequirements(db, institutionId) {
   const result = await db.query(
-    'SELECT require_checkin_selfie FROM institutions WHERE id = $1',
+    'SELECT require_checkin_selfie, institution_type FROM institutions WHERE id = $1',
     [institutionId]
   );
   const row = result.rows[0] || {};
   // Fingerprint was removed. biometric: false stops apps that haven't updated
-  // yet from still asking for it.
-  return { selfie: row.require_checkin_selfie !== false, biometric: false };
+  // yet from still asking for it. leave: whether staff can request leave
+  // (schools don't use it), so the apps show or hide Request Leave.
+  return { selfie: row.require_checkin_selfie !== false, biometric: false, leave: leaveEnabledFor(row.institution_type) };
 }
 
 exports.checkIn = async (req, res) => {

@@ -258,6 +258,8 @@ async function runAutoMigration(client) {
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS reset_code_sent_at TIMESTAMP',
     // Accounts that aren't real staff (built-in admin login, vendor account) are left out of attendance
     'ALTER TABLE staff ADD COLUMN IF NOT EXISTS counts_in_attendance BOOLEAN NOT NULL DEFAULT true',
+    // School or business: schools don't use leave requests
+    "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS institution_type VARCHAR(20) NOT NULL DEFAULT 'school'",
     `ALTER TABLE attendance_rules ADD COLUMN IF NOT EXISTS overtime_multiplier NUMERIC(5, 2) NOT NULL DEFAULT 1.5`,
 
     // â”€â”€ Premises tracking (signed in at gate, left without working) â”€â”€

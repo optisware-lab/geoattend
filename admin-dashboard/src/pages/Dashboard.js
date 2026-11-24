@@ -9,6 +9,7 @@ import {
 import {
   getDashboardStats, getWeeklySummary, getLeaveStats, getRealTimeAttendance, getAttendanceRules, getSubscriptionStatus,
 } from '../services/api';
+import { useInstitutionType } from '../components/useInstitution';
 import { PageHeader, StatCard, Card, Avatar, Badge, EmptyState, useIsMobile, useNow, useAutoRefresh } from '../components/ui';
 import { formatDateLong, formatTime, formatClock, greeting, timeAgo, toDate } from '../utils/format';
 
@@ -56,6 +57,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [weekly, setWeekly] = useState([]);
   const [leaveStats, setLeaveStats] = useState(null);
+  const { leaveEnabled } = useInstitutionType();
   const [recent, setRecent] = useState([]);
   const [rules, setRules] = useState(null);
   const [subscription, setSubscription] = useState(null);
@@ -99,7 +101,7 @@ export default function Dashboard() {
   const notInYet = Math.max(0, absent - onLeave);
 
   const attention = [];
-  if (pendingLeave > 0) {
+  if (leaveEnabled && pendingLeave > 0) {
     attention.push({ tone: 'orange', icon: FiCalendar, title: `${pendingLeave} leave request${pendingLeave > 1 ? 's' : ''} waiting`, text: 'Approve or reject in one click', to: '/leave' });
   }
   if (isWorkingDay && pastStart && notInYet > 0) {
@@ -166,7 +168,7 @@ export default function Dashboard() {
         <StatCard label="Total staff" value={firstLoad ? '–' : total} hint="Active accounts" icon={FiUsers} color="#3498db" onClick={() => navigate('/manage-staff')} />
         <StatCard label="Present" value={firstLoad ? '–' : present} hint={`${rate}% of staff · ${stillOut} still on site`} icon={FiUserCheck} color="#27ae60" onClick={() => navigate('/attendance')} />
         <StatCard label="Late" value={firstLoad ? '–' : late} hint={rules?.work_start_time ? `After ${formatClock(rules.work_start_time)} + ${rules.late_threshold_minutes || 0} min` : 'Arrived after start time'} icon={FiClock} color="#f39c12" onClick={() => navigate('/attendance?view=late')} />
-        <StatCard label="Not in" value={firstLoad ? '–' : absent} hint={onLeave ? `incl. ${onLeave} on approved leave` : 'No sign-in today'} icon={FiUserX} color="#e74c3c" onClick={() => navigate('/attendance?view=missing')} />
+        <StatCard label="Not in" value={firstLoad ? '–' : absent} hint={leaveEnabled && onLeave ? `incl. ${onLeave} on approved leave` : 'No sign-in today'} icon={FiUserX} color="#e74c3c" onClick={() => navigate('/attendance?view=missing')} />
       </div>
 
       <div className="ga-card" style={{ padding: '16px 20px', marginBottom: 18 }}>
@@ -188,7 +190,7 @@ export default function Dashboard() {
               <FiCheckCircle size={22} />
               <div>
                 <div style={{ fontWeight: 700 }}>All clear</div>
-                <div style={{ fontSize: 12.5, opacity: 0.85 }}>No pending leave, late arrivals or billing issues right now.</div>
+                <div style={{ fontSize: 12.5, opacity: 0.85 }}>{leaveEnabled ? 'No pending leave, late arrivals or billing issues right now.' : 'No late arrivals or billing issues right now.'}</div>
               </div>
             </div>
           ) : attention.map((a) => (
@@ -199,7 +201,7 @@ export default function Dashboard() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
             <button type="button" className="ga-btn" onClick={() => navigate('/attendance')}><FiActivity size={14} /> Live attendance</button>
             <button type="button" className="ga-btn" onClick={() => navigate('/reports?period=today')}><FiDownload size={14} /> Today's report</button>
-            <button type="button" className="ga-btn" onClick={() => navigate('/leave')}><FiCalendar size={14} /> Leave requests</button>
+            {leaveEnabled && <button type="button" className="ga-btn" onClick={() => navigate('/leave')}><FiCalendar size={14} /> Leave requests</button>}
             <button type="button" className="ga-btn" onClick={() => navigate('/manage-staff')}><FiUsers size={14} /> Manage staff</button>
           </div>
         </Card>

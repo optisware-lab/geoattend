@@ -1,4 +1,5 @@
 const bcrypt = require('bcryptjs');
+const { normalizeInstitutionType, guessInstitutionType, leaveEnabledFor } = require('../utils/institutionType');
 const { normalizeGender } = require('../utils/gender');
 const jwt = require('jsonwebtoken');
 const { signSessionToken, optionsFromClaims } = require('../utils/authToken');
@@ -134,6 +135,12 @@ async function buildAuthPayload(staff, institutionCode, tokenOptions) {
   const token = signSessionToken(staff, tokenOptions);
 
   const subscription = await getSubscriptionPayloadSafe(staff.institution_id);
+  // School or business decides whether the apps show leave requests
+  let institutionType = 'school';
+  try {
+    const t = await pool.query('SELECT institution_type FROM institutions WHERE id = $1', [staff.institution_id]);
+    institutionType = t.rows[0]?.institution_type || 'school';
+  } catch { /* keep the default */ }
 
   return {
     token,
@@ -160,6 +167,8 @@ async function buildAuthPayload(staff, institutionCode, tokenOptions) {
       latitude: parseFloat(staff.inst_lat),
       longitude: parseFloat(staff.inst_lon),
       geofenceRadius: staff.geofence_radius,
+      type: institutionType,
+      leaveEnabled: leaveEnabledFor(institutionType),
     },
     subscription,
   };

@@ -614,7 +614,7 @@ function LeaveCard({ active }) {
   );
 }
 
-function ProfileTab({ active, onSignOut }) {
+function ProfileTab({ active, onSignOut, leaveEnabled }) {
   const { user, institution } = session.get();
   const [profile, setProfile] = useState(null);
 
@@ -658,7 +658,7 @@ function ProfileTab({ active, onSignOut }) {
         ))}
       </div>
 
-      <LeaveCard active={active} />
+      {leaveEnabled && <LeaveCard active={active} />}
 
       {isIos && !isStandalone && (
         <div style={{ ...st.card(C.blue), fontSize: 14, lineHeight: 1.5 }}>
@@ -702,6 +702,14 @@ export default function StaffHome({ onSignOut }) {
   const [message, setMessage] = useState(null);
   // What a sign-in must include (from today's status); photo on unless the admin turned it off
   const [requirements, setRequirements] = useState({ selfie: true });
+  // Request Leave is only for businesses; schools don't use it
+  const [leaveEnabled, setLeaveEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem('staffLeaveEnabled');
+      if (saved != null) return saved === '1';
+    } catch { /* storage blocked */ }
+    return institution?.leaveEnabled === true;
+  });
   const [selfieRequest, setSelfieRequest] = useState(null);
   const [rules, setRules] = useState(() => readRules());
   const [now, setNow] = useState(() => new Date());
@@ -740,6 +748,10 @@ export default function StaffHome({ onSignOut }) {
     try {
       const { data } = await getTodayStatus();
       if (data.requirements) setRequirements(data.requirements);
+      if (typeof data.requirements?.leave === 'boolean') {
+        setLeaveEnabled(data.requirements.leave);
+        try { localStorage.setItem('staffLeaveEnabled', data.requirements.leave ? '1' : '0'); } catch { /* ignore */ }
+      }
       saveTodayStatus(data.status, data.record);
       statusDay.current = new Date().toDateString();
       setOffline(false);
@@ -1031,6 +1043,7 @@ export default function StaffHome({ onSignOut }) {
 
   const signOut = () => {
     clearCachedStatus();
+    try { localStorage.removeItem('staffLeaveEnabled'); } catch { /* ignore */ }
     session.clear();
     onSignOut();
   };
@@ -1047,7 +1060,7 @@ export default function StaffHome({ onSignOut }) {
       )}
       {tab === 'qr' && <QrTab active onQrText={onQrText} onPhoto={onPhoto} busy={busy} message={message} />}
       {tab === 'history' && <HistoryTab active />}
-      {tab === 'profile' && <ProfileTab active onSignOut={signOut} />}
+      {tab === 'profile' && <ProfileTab active onSignOut={signOut} leaveEnabled={leaveEnabled} />}
 
       <UpdateNotice />
 

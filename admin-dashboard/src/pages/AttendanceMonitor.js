@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { FiRefreshCw, FiSearch, FiPhone, FiClock, FiUserX, FiCheckCircle, FiAlertCircle, FiMapPin, FiCalendar, FiCameraOff } from 'react-icons/fi';
 import { getRealTimeAttendance, getStaff, getAllLeaves } from '../services/api';
+import { useInstitutionType } from '../components/useInstitution';
 import { PageHeader, Avatar, Badge, EmptyState, useAutoRefresh, useNow } from '../components/ui';
 import CheckInSelfie from '../components/CheckInSelfie';
 import { formatDateLong, formatTime, formatDuration, formatDateRange, timeAgo, toDate } from '../utils/format';
@@ -32,6 +33,8 @@ export default function AttendanceMonitor() {
   const [records, setRecords] = useState([]);
   const [staff, setStaff] = useState([]);
   const [leaves, setLeaves] = useState([]);
+  const { leaveEnabled } = useInstitutionType();
+  const views = VIEWS.filter((v) => leaveEnabled || v.key !== 'leave');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -98,7 +101,7 @@ export default function AttendanceMonitor() {
       />
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-        {VIEWS.map((v) => (
+        {views.map((v) => (
           <button key={v.key} type="button" className={`ga-chip${view === v.key ? ' is-active' : ''}`} onClick={() => setView(v.key)}>
             {v.label}
             <span className="ga-chip-count">{(groups[v.key] || []).length}</span>
@@ -124,7 +127,7 @@ export default function AttendanceMonitor() {
       ) : list.length === 0 ? (
         <div className="ga-card">
           {view === 'missing' && !q ? (
-            <EmptyState icon={FiCheckCircle} title="Everyone is accounted for" text="All active staff have signed in or are on approved leave." />
+            <EmptyState icon={FiCheckCircle} title="Everyone is accounted for" text={leaveEnabled ? 'All active staff have signed in or are on approved leave.' : 'All active staff have signed in.'} />
           ) : (
             <EmptyState icon={q ? FiSearch : FiClock} title={q ? 'No one matches your search' : 'Nobody here yet'} />
           )}

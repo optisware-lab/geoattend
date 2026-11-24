@@ -7,7 +7,7 @@ const { generateQRCode } = require('../utils/qrcode');
 
 exports.getAllStaff = async (req, res) => {
   try {
-    const { page = 1, limit = 50, search, department, status, gender } = req.query;
+    const { page = 1, limit = 50, search, department, status, gender, sort = 'id' } = req.query;
     const offset = (page - 1) * limit;
     const institutionId = req.user.institution_id;
 
@@ -57,7 +57,15 @@ exports.getAllStaff = async (req, res) => {
     const countQuery = query.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) FROM');
     const countResult = await req.tenantDb.query(countQuery, params);
 
-    query += ` ORDER BY s.last_name, s.first_name LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    // Staff IDs sort in number order (GTIS001, GTIS002 ... GTIS030), not as text
+    const idOrder = (dir) => `substring(s.staff_id from '^[^0-9]*') ${dir}, length(substring(s.staff_id from '[0-9]+')) ${dir}, substring(s.staff_id from '[0-9]+') ${dir}, s.staff_id ${dir}`;
+    const ORDERS = {
+      id: idOrder('ASC'),
+      id_desc: idOrder('DESC'),
+      name: 's.first_name, s.last_name',
+      newest: 's.created_at DESC',
+    };
+    query += ` ORDER BY ${ORDERS[sort] || ORDERS.id} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const result = await req.tenantDb.query(query, params);

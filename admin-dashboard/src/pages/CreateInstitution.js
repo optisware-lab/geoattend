@@ -32,6 +32,8 @@ const styles = {
 export default function CreateInstitution() {
   const DRAFT_KEY = 'createInstitutionDraft';
   const [name, setName] = useState('');
+  // School or business: schools don't use leave requests
+  const [institutionType, setInstitutionType] = useState('school');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
   const [region, setRegion] = useState('');
@@ -112,7 +114,7 @@ export default function CreateInstitution() {
     if (!name || !latitude || !longitude) return toast.error('Name, latitude and longitude are required');
     setCreating(true);
     try {
-      const payload = { name, address, city, region, latitude: parseFloat(latitude), longitude: parseFloat(longitude), geofenceRadius: parseInt(geofenceRadius, 10), requestId };
+      const payload = { name, institutionType, address, city, region, latitude: parseFloat(latitude), longitude: parseFloat(longitude), geofenceRadius: parseInt(geofenceRadius, 10), requestId };
       // Retry timeouts/network errors with the same requestId — the server returns
       // the institution it already made instead of creating another one
       let res;
@@ -225,6 +227,13 @@ export default function CreateInstitution() {
           <div style={styles.field}>
             <label style={styles.label} htmlFor="inst-name">Institution Name *</label>
             <input id="inst-name" style={styles.input} placeholder="e.g. Rising Soul Academy" value={name} onChange={e => setName(e.target.value)} />
+          </div>
+          <div style={styles.field}>
+            <label style={styles.label} htmlFor="inst-type">Type *</label>
+            <select id="inst-type" style={styles.input} value={institutionType} onChange={e => setInstitutionType(e.target.value)}>
+              <option value="school">School (no leave requests)</option>
+              <option value="business">Business (staff can request leave)</option>
+            </select>
           </div>
         </div>
         <div style={styles.row}>

@@ -5,6 +5,7 @@ import { FiHome, FiUsers, FiClock, FiBarChart2, FiSettings, FiLogOut, FiMapPin, 
 import { getLeaveStats } from '../services/api';
 import { formatDate } from '../utils/format';
 import InstitutionLogo from './InstitutionLogo';
+import { useInstitutionType } from './useInstitution';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: FiHome },
@@ -141,8 +142,10 @@ export default function Sidebar({ user, onLogout }) {
   // phone push or email set up, so this is how they hear about it).
   const lastPending = useRef(null);
   const baseTitle = useRef(document.title);
+  // Schools don't use leave: no Leave menu, badge or alerts there
+  const { leaveEnabled } = useInstitutionType();
   const loadBadges = useCallback(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !leaveEnabled) { setPendingLeave(0); return; }
     getLeaveStats().then((r) => {
       const pending = Number(r.data?.pending || 0);
       const prev = lastPending.current;
@@ -157,7 +160,7 @@ export default function Sidebar({ user, onLogout }) {
         });
       }
     }).catch(() => {});
-  }, [isAdmin, navigate]);
+  }, [isAdmin, leaveEnabled, navigate]);
   useEffect(() => { loadBadges(); }, [loadBadges, location.pathname]);
   useEffect(() => {
     const id = setInterval(loadBadges, 60000);
@@ -196,6 +199,12 @@ export default function Sidebar({ user, onLogout }) {
     const item = { path: '/payroll', label: 'Payroll', icon: FiDollarSign };
     if (insertIndex >= 0) finalNavItems.splice(insertIndex + 1, 0, item);
     else finalNavItems.push(item);
+  }
+
+  if (!leaveEnabled) {
+    for (let i = finalNavItems.length - 1; i >= 0; i -= 1) {
+      if (finalNavItems[i].path === '/leave' || finalNavItems[i].path === '/request-leave') finalNavItems.splice(i, 1);
+    }
   }
 
   // Add Create Institution link for super_admin only

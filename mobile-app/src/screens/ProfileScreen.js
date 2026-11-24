@@ -14,9 +14,17 @@ import { useTheme } from '../services/theme';
 import { useToast } from '../services/Toast';
 import { useI18n } from '../services/i18n';
 import { formatDay } from '../services/format';
+import { isLeaveEnabled } from '../services/presence';
 
 export default function ProfileScreen({ navigation, onLogout }) {
   const [profile, setProfile] = useState(null);
+  // Request Leave is only for businesses; schools don't use it
+  const [leaveEnabled, setLeaveEnabled] = useState(false);
+  useEffect(() => {
+    const check = () => { isLeaveEnabled().then(setLeaveEnabled).catch(() => {}); };
+    check();
+    return navigation?.addListener ? navigation.addListener('focus', check) : undefined;
+  }, [navigation]);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -350,9 +358,11 @@ export default function ProfileScreen({ navigation, onLogout }) {
               <Text style={[styles.passwordBtnText, { color: '#3498db' }]}>Switch Account</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.passwordBtn, { borderWidth: 1, borderColor: '#27ae60', backgroundColor: theme.card }]} onPress={() => navigation.navigate('LeaveRequest')}>
-              <Text style={[styles.passwordBtnText, { color: '#27ae60' }]}>Request Leave</Text>
-            </TouchableOpacity>
+            {leaveEnabled && (
+              <TouchableOpacity style={[styles.passwordBtn, { borderWidth: 1, borderColor: '#27ae60', backgroundColor: theme.card }]} onPress={() => navigation.navigate('LeaveRequest')}>
+                <Text style={[styles.passwordBtnText, { color: '#27ae60' }]}>Request Leave</Text>
+              </TouchableOpacity>
+            )}
 
           </>
         )}

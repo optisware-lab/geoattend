@@ -21,6 +21,21 @@ export async function saveCheckInRequirements(requirements) {
   try { await AsyncStorage.setItem(REQUIREMENTS_KEY, JSON.stringify(requirements)); } catch {}
 }
 
+/**
+ * Whether staff can request leave: businesses yes, schools no. From the
+ * server's last answer, else from the login, else no.
+ */
+export async function isLeaveEnabled() {
+  try {
+    const saved = JSON.parse(await AsyncStorage.getItem(REQUIREMENTS_KEY));
+    if (typeof saved?.leave === 'boolean') return saved.leave;
+    const inst = JSON.parse(await AsyncStorage.getItem('institution'));
+    return inst?.leaveEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
 async function getCheckInRequirements() {
   try {
     const saved = JSON.parse(await AsyncStorage.getItem(REQUIREMENTS_KEY));

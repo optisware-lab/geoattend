@@ -31,6 +31,7 @@ router.get('/', requireSuperAdmin, institutionController.getAllInstitutions);
 router.post('/', requireSuperAdmin, institutionController.createInstitution);
 router.delete('/:id', requireSuperAdmin, institutionController.deleteInstitution);
 router.post('/:id/extend-trial', requireSuperAdmin, institutionController.extendTrial);
+router.put('/:id/type', requireSuperAdmin, auditMiddleware('set_institution_type', 'institution'), institutionController.setInstitutionType);
 router.post('/:id/repair-code',requireSuperAdmin, institutionController.repairInstitutionCode);
 router.get('/:id/admin-credentials', requireSuperAdmin, institutionController.getAdminCredentials);
 router.post('/:id/admin-credentials', requireSuperAdmin, institutionController.createOrResetAdminCredentials);

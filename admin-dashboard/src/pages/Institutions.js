@@ -5,7 +5,7 @@ import { FiSearch, FiMapPin, FiUsers, FiCopy, FiEye, FiEyeOff, FiRefreshCw, FiLo
 import { PageHeader, StatCard } from '../components/ui';
 import { formatDate, timeAgo } from '../utils/format';
 import InstitutionLogo from '../components/InstitutionLogo';
-import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution, extendInstitutionTrial } from '../services/api';
+import { getAllInstitutions, getInstitutionAdminCredentials, createInstitutionAdminCredentials, deleteInstitution, extendInstitutionTrial, setInstitutionType } from '../services/api';
 
 const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' },
@@ -145,6 +145,22 @@ export default function Institutions() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [typeSaving, setTypeSaving] = useState(null);
+
+  // School or business: decides whether its staff and admin see Leave
+  const changeType = async (inst, type) => {
+    if (type === (inst.institution_type || 'school')) return;
+    setTypeSaving(inst.id);
+    try {
+      await setInstitutionType(inst.id, type);
+      setInstitutions((list) => list.map((i) => (i.id === inst.id ? { ...i, institution_type: type } : i)));
+      toast.success(`${inst.name} is now a ${type}. Leave is ${type === 'business' ? 'on' : 'hidden'} for it.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Could not change the type');
+    } finally {
+      setTypeSaving(null);
+    }
+  };
   const [extendTarget, setExtendTarget] = useState(null);
   const [extendDays, setExtendDays] = useState('7');
   const [extending, setExtending] = useState(false);
@@ -418,6 +434,7 @@ export default function Institutions() {
             <th style={styles.th}>Institution</th>
             <th style={styles.th}>Code</th>
             <th style={styles.th}>Location</th>
+            <th style={styles.th}>Type</th>
             <th style={styles.th}>Geofence</th>
             <th style={styles.th}>Members</th>
             <th style={styles.th}>Admin Credentials</th>
@@ -459,6 +476,21 @@ export default function Institutions() {
                       {Number(inst.latitude).toFixed(5)}, {Number(inst.longitude).toFixed(5)}
                     </div>
                   )}
+                </td>
+                <td style={styles.td}>
+                  <select
+                    aria-label={`Type of ${inst.name}`}
+                    value={inst.institution_type === 'business' ? 'business' : 'school'}
+                    disabled={typeSaving === inst.id}
+                    onChange={(e) => changeType(inst, e.target.value)}
+                    style={{ padding: '4px 6px', borderRadius: 6, border: '1px solid #e0e0e0', fontSize: 12, background: '#fff' }}
+                  >
+                    <option value="school">School</option>
+                    <option value="business">Business</option>
+                  </select>
+                  <div style={{ color: '#95a5a6', fontSize: '11px', marginTop: '3px' }}>
+                    {inst.institution_type === 'business' ? 'Leave on' : 'No leave'}
+                  </div>
                 </td>
                 <td style={styles.td}>{inst.geofence_radius ? `${inst.geofence_radius}m` : '-'}</td>
                 <td style={styles.td}>
@@ -507,10 +539,10 @@ export default function Institutions() {
             );
           })}
           {!loading && filtered.length === 0 && (
-            <tr><td colSpan={9} style={styles.empty}>No institutions found</td></tr>
+            <tr><td colSpan={10} style={styles.empty}>No institutions found</td></tr>
           )}
           {loading && (
-            <tr><td colSpan={9} style={styles.empty}>Loading institutions...</td></tr>
+            <tr><td colSpan={10} style={styles.empty}>Loading institutions...</td></tr>
           )}
         </tbody>
       </table>

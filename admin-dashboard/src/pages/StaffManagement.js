@@ -76,6 +76,10 @@ export default function StaffManagement() {
   const [statusFilter, setStatusFilter] = useState('');
   const [genderFilter, setGenderFilter] = useState('');
   const [genderCounts, setGenderCounts] = useState(null);
+  // Staff ID order (GTIS001, GTIS002, ...) unless the admin picks another
+  const [sort, setSort] = useState(() => {
+    try { return localStorage.getItem('staffSort') || 'id'; } catch { return 'id'; }
+  });
   const fileInputRef = React.useRef(null);
 
   const handleCSVUpload = async (e) => {
@@ -120,12 +124,12 @@ export default function StaffManagement() {
   };
 
   const fetchStaff = () => {
-    getStaff({ page, limit: 20, search, department, status: statusFilter, gender: genderFilter || undefined })
+    getStaff({ page, limit: 20, search, department, status: statusFilter, gender: genderFilter || undefined, sort })
       .then(r => { setStaff(r.data.staff); setTotal(r.data.total); setGenderCounts(r.data.genderCounts || null); })
       .catch(() => toast.error('Failed to load staff'));
   };
 
-  useEffect(() => { fetchStaff(); }, [page, department, statusFilter, genderFilter]);
+  useEffect(() => { fetchStaff(); }, [page, department, statusFilter, genderFilter, sort]);
   useEffect(() => { getDepartments().then(r => setDepartments(r.data)).catch(() => {}); }, []);
 
   const handleSearch = (e) => {
@@ -217,6 +221,21 @@ export default function StaffManagement() {
           <option value="male">Male</option>
           <option value="female">Female</option>
           <option value="unspecified">Not set</option>
+        </select>
+        <select
+          style={styles.select}
+          value={sort}
+          aria-label="Sort staff"
+          onChange={e => {
+            setSort(e.target.value);
+            setPage(1);
+            try { localStorage.setItem('staffSort', e.target.value); } catch { /* ignore */ }
+          }}
+        >
+          <option value="id">Sort: Staff ID, first to last</option>
+          <option value="id_desc">Sort: Staff ID, last to first</option>
+          <option value="name">Sort: Name (A to Z)</option>
+          <option value="newest">Sort: Newest first</option>
         </select>
       </div>
 

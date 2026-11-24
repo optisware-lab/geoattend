@@ -1,6 +1,7 @@
 const pool = require('../config/database');
 const { renumberStaff } = require('../utils/staffIds');
 const { formatName } = require('../utils/names');
+const { guessInstitutionType } = require('../utils/institutionType');
 const {
   freeInstitutionCode, freeAdminId, OLD_INSTITUTION_CODE, OLD_ADMIN_ID,
 } = require('../utils/institutionCodes');
@@ -111,6 +112,21 @@ const JOBS = [
          RETURNING staff_id, first_name, last_name`
       );
       return { leftOut: r.rows.map((s) => `${s.first_name} ${s.last_name || ''}`.trim() + ` (${s.staff_id})`) };
+    },
+  },
+  {
+    key: '2026-11-institution-type-from-name',
+    // School or business, guessed from the name ("... School", "Academy"...).
+    // The super admin can change it on the Institutions page.
+    async run(client) {
+      const all = await client.query('SELECT id, name FROM institutions');
+      const set = { school: [], business: [] };
+      for (const inst of all.rows) {
+        const type = guessInstitutionType(inst.name);
+        await client.query('UPDATE institutions SET institution_type = $2 WHERE id = $1', [inst.id, type]);
+        set[type].push(inst.name);
+      }
+      return set;
     },
   },
 ];

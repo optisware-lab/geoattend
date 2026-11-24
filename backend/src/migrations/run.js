@@ -142,6 +142,9 @@ ALTER TABLE staff ADD COLUMN IF NOT EXISTS legacy_staff_ids TEXT[] NOT NULL DEFA
 
 -- Accounts that aren't real staff (built-in admin login, vendor account) are left out of attendance
 ALTER TABLE staff ADD COLUMN IF NOT EXISTS counts_in_attendance BOOLEAN NOT NULL DEFAULT true;
+
+-- School or business: schools don't use leave requests
+ALTER TABLE institutions ADD COLUMN IF NOT EXISTS institution_type VARCHAR(20) NOT NULL DEFAULT 'school';
 ALTER TABLE staff ALTER COLUMN password_hash DROP NOT NULL;
 
 -- Ensure column sizes are correct (in case table was created with smaller sizes)
