@@ -86,27 +86,91 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
 }
 
 const UA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-// Links opened from WhatsApp, Facebook, Instagram etc. run inside that app's
-// own browser, which needs that app's location permission, not the phone's.
-const IN_APP_BROWSER = /WhatsApp|FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter|Snapchat|TikTok|musical_ly|; wv\)/i.test(UA);
 const IS_IOS_UA = /iphone|ipad|ipod/i.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+const IS_ANDROID = /Android/i.test(UA);
+// Links opened from Facebook, Instagram, TikTok etc. run inside that app's own
+// browser ("wv" = Android WebView), which usually can't share location at all.
+const IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter|Snapchat|TikTok|musical_ly|WhatsApp|; wv\)/i.test(UA);
 
-function blockedMessage() {
-  if (IN_APP_BROWSER) {
-    return 'Location is blocked inside this app\'s browser. Open this page in '
-      + (IS_IOS_UA ? 'Safari' : 'Chrome')
-      + ' instead (tap the ⋮ or share menu > "Open in browser"), then sign in there.';
+/** The Android browser this page is open in, for naming the right settings. */
+function androidBrowser() {
+  if (/SamsungBrowser/i.test(UA)) return 'Samsung Internet';
+  if (/OPR\/|Opera|OPX\//i.test(UA)) return 'Opera';
+  if (/PHX\/|Phoenix/i.test(UA)) return 'Phoenix';
+  if (/UCBrowser/i.test(UA)) return 'UC Browser';
+  if (/MiuiBrowser|XiaoMi/i.test(UA)) return 'Mi Browser';
+  if (/HeyTapBrowser|OppoBrowser/i.test(UA)) return 'the phone\'s browser';
+  if (/EdgA\//i.test(UA)) return 'Edge';
+  if (/Firefox/i.test(UA)) return 'Firefox';
+  if (/Chrome\//i.test(UA)) return 'Chrome';
+  return 'your browser';
+}
+
+/** Opens this same page in Chrome from any Android browser or in-app browser. */
+function openInChrome() {
+  const { host, pathname, search, href } = window.location;
+  window.location.href = `intent://${host}${pathname}${search}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(href)};end`;
+}
+
+async function sitePermissionState() {
+  try {
+    return (await navigator.permissions.query({ name: 'geolocation' })).state;
+  } catch {
+    return null;
   }
+}
+
+/**
+ * Says exactly what is blocking location on this phone, since "location is
+ * on" in the phone's quick settings does not mean the browser may use it.
+ */
+async function blockedHelp() {
   if (IS_IOS_UA) {
-    return 'Your phone\'s location is on, but Safari is blocking it for this site. To allow it:\n'
-      + '1. Settings > Privacy & Security > Location Services > Safari Websites > "While Using the App".\n'
-      + '2. In Safari, tap "aA" (or the page menu) in the address bar > Website Settings > Location > Allow.\n'
-      + '3. Come back and tap "Reload and try again" below.';
+    return {
+      text: IN_APP_BROWSER
+        ? 'Location is blocked inside this app\'s browser. Open this page in Safari (tap the share or ⋯ menu > "Open in Safari"), then sign in there.'
+        : 'Your phone\'s location is on, but Safari is blocking it for this site. To allow it:\n'
+          + '1. Settings > Privacy & Security > Location Services > Safari Websites > "While Using the App".\n'
+          + '2. In Safari, tap "aA" in the address bar > Website Settings > Location > Allow.\n'
+          + '3. Come back and tap "Reload and try again".',
+      chrome: false,
+    };
   }
-  return 'Your phone\'s location is on, but the browser is blocking it for this site. To allow it:\n'
-    + '1. Tap the lock/settings icon next to the web address > Permissions > Location > Allow.\n'
-    + '2. Phone Settings > Apps > Chrome (or your browser) > Permissions > Location > Allow.\n'
-    + '3. Come back and tap "Reload and try again" below.';
+  if (!IS_ANDROID) {
+    return {
+      text: 'Location is blocked for this site. Click the icon left of the web address, allow Location, then tap "Reload and try again".',
+      chrome: false,
+    };
+  }
+
+  const browser = androidBrowser();
+  if (IN_APP_BROWSER) {
+    return {
+      text: 'This page is open inside another app (like Facebook or WhatsApp), and that app does not share your location. '
+        + 'Tap "Open in Chrome" below and sign in there.',
+      chrome: true,
+    };
+  }
+  if (!['Chrome', 'Samsung Internet', 'Edge', 'Firefox'].includes(browser)) {
+    return {
+      text: `${browser === 'your browser' ? 'This browser' : browser} is not sharing your location with this site. `
+        + 'Tap "Open in Chrome" below and sign in there.\n'
+        + `If you want to stay in ${browser}: phone Settings > Apps > ${browser} > Permissions > Location > "Allow only while using the app", then tap "Reload and try again".`,
+      chrome: true,
+    };
+  }
+
+  const appSteps = `Phone Settings > Apps > ${browser} > Permissions > Location > "Allow only while using the app", and turn on "Use precise location".`;
+  const siteSteps = browser === 'Samsung Internet'
+    ? 'In Samsung Internet tap ☰ (menu) > Settings > Sites and downloads > Site permissions > Location, and remove this site from the blocked list.'
+    : `In ${browser} tap the icon left of the web address > Permissions (or "Site settings") > Location > Allow. If you see "Reset permissions", tap it.`;
+  const siteBlocked = (await sitePermissionState()) === 'denied';
+  return {
+    text: siteBlocked
+      ? `Your phone's location is on, but ${browser} has blocked it for this site. To fix it:\n1. ${siteSteps}\n2. Tap "Reload and try again" and choose Allow.\n\nStill blocked? ${appSteps}`
+      : `Your phone's location is on, but Android is not letting ${browser} use it. To fix it:\n1. ${appSteps}\n2. Come back here and tap "Reload and try again".\n\nStill blocked? ${siteSteps}`,
+    chrome: browser !== 'Chrome',
+  };
 }
 
 function requestPosition(options) {
@@ -130,8 +194,10 @@ async function getLocation() {
       return await requestPosition({ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
     } catch (err) {
       const denied = err.code === 1 || first.code === 1;
-      const e = new Error(denied ? blockedMessage() : 'Could not get your location. Turn on Location/GPS, move near a window or outside, and try again.');
+      const help = denied ? await blockedHelp() : null;
+      const e = new Error(help ? help.text : 'Could not get your location. Turn on Location/GPS, move near a window or outside, and try again.');
       e.denied = denied;
+      e.offerChrome = !!help?.chrome;
       throw e;
     }
   }
@@ -286,7 +352,12 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
         )}
         {locationDenied ? (
           // Browsers remember a refusal until the page reloads, so a plain retry can't succeed
-          <button type="button" style={st.textLink} onClick={() => window.location.reload()}>Reload and try again</button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+            {locationDenied === 'chrome' && (
+              <button type="button" style={{ ...st.outlineBtn, width: 'auto', flex: 1, padding: '10px 14px', fontSize: 14 }} onClick={openInChrome}>Open in Chrome</button>
+            )}
+            <button type="button" style={{ ...st.outlineBtn, width: 'auto', flex: 1, padding: '10px 14px', fontSize: 14 }} onClick={() => window.location.reload()}>Reload and try again</button>
+          </div>
         ) : (
           <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
         )}
@@ -739,7 +810,9 @@ export default function StaffHome({ onSignOut }) {
   const [pending, setPending] = useState(() => queueLength(userId));
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
-  const [locationDenied, setLocationDenied] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false); // false | true | 'chrome' (also offer Open in Chrome)
+  const locationDeniedRef = useRef(false);
+  locationDeniedRef.current = locationDenied;
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   // What a sign-in must include (from today's status); photo on unless the admin turned it off
@@ -885,7 +958,7 @@ export default function StaffHome({ onSignOut }) {
       return loc;
     } catch (err) {
       setLocationError(err.message);
-      setLocationDenied(!!err.denied);
+      setLocationDenied(err.denied ? (err.offerChrome ? 'chrome' : true) : false);
       return null;
     }
   }, []);
@@ -934,10 +1007,13 @@ export default function StaffHome({ onSignOut }) {
       }
       setNow(new Date());
       loadToday({ quiet: true });
+      // Back from phone Settings: Android browsers pick up a newly allowed
+      // location straight away, so try again without making them reload.
+      if (locationDeniedRef.current) refreshLocation();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [loadToday]);
+  }, [loadToday, refreshLocation]);
 
   const afterCheckIn = (data, how) => {
     setMessage({ type: 'success', text: data.isLate ? `Signed in ${how}. You are marked as LATE.` : `Signed in ${how}. Have a good day!` });
