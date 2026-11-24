@@ -192,7 +192,7 @@ export default function StaffManagement() {
             <FiUpload size={16} /> Import CSV
           </button>
           <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCSVUpload} style={{ display: 'none' }} />
-          <button style={styles.addBtn} onClick={() => navigate('/staff/new')}>
+          <button style={styles.addBtn} onClick={() => navigate('/manage-staff/new')}>
             <FiPlus size={16} /> Add Staff
           </button>
         </div>
@@ -279,7 +279,7 @@ export default function StaffManagement() {
               <td style={styles.td}>{s.phone || '-'}</td>
               <td style={styles.td}><span style={styles.badge(s.is_active)}>{s.is_active ? 'Active' : 'Inactive'}</span></td>
               <td style={styles.td}>
-                <button style={styles.actionBtn} title="Edit" onClick={() => navigate(`/staff/${s.id}/edit`)}><FiEdit2 size={15} /></button>
+                <button style={styles.actionBtn} title="Edit" onClick={() => navigate(`/manage-staff/${s.id}/edit`)}><FiEdit2 size={15} /></button>
                 <button
                   style={{ ...styles.actionBtn, opacity: printingId === s.id ? 0.5 : 1 }}
                   title="Print QR Code"

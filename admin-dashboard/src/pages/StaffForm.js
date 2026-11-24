@@ -92,7 +92,7 @@ export default function StaffForm() {
         const { data: created } = await createStaff({ ...form, hourlyRate: rate });
         toast.success(`Staff created with ID ${created?.staff_id || form.staffId}`);
       }
-      navigate('/staff');
+      navigate('/manage-staff');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Operation failed');
     } finally {
@@ -103,7 +103,7 @@ export default function StaffForm() {
   return (
     <div>
       <div style={styles.header}>
-        <button style={styles.backBtn} onClick={() => navigate('/staff')}><FiArrowLeft size={20} /></button>
+        <button style={styles.backBtn} onClick={() => navigate('/manage-staff')}><FiArrowLeft size={20} /></button>
         <h1 style={styles.title}>{isEdit ? 'Edit Staff' : 'Add New Staff'}</h1>
       </div>
 

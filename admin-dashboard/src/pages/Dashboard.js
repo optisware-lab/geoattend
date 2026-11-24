@@ -155,7 +155,7 @@ export default function Dashboard() {
             <button type="button" className="ga-btn" onClick={load} disabled={refreshing}>
               <FiRefreshCw size={14} className={refreshing ? 'spin' : ''} /> Refresh
             </button>
-            <button type="button" className="ga-btn ga-btn-primary" onClick={() => navigate('/staff/new')}>
+            <button type="button" className="ga-btn ga-btn-primary" onClick={() => navigate('/manage-staff/new')}>
               <FiUserPlus size={14} /> Add staff
             </button>
           </>
@@ -163,7 +163,7 @@ export default function Dashboard() {
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))', gap: 14, marginBottom: 18 }}>
-        <StatCard label="Total staff" value={firstLoad ? '–' : total} hint="Active accounts" icon={FiUsers} color="#3498db" onClick={() => navigate('/staff')} />
+        <StatCard label="Total staff" value={firstLoad ? '–' : total} hint="Active accounts" icon={FiUsers} color="#3498db" onClick={() => navigate('/manage-staff')} />
         <StatCard label="Present" value={firstLoad ? '–' : present} hint={`${rate}% of staff · ${stillOut} still on site`} icon={FiUserCheck} color="#27ae60" onClick={() => navigate('/attendance')} />
         <StatCard label="Late" value={firstLoad ? '–' : late} hint={rules?.work_start_time ? `After ${formatClock(rules.work_start_time)} + ${rules.late_threshold_minutes || 0} min` : 'Arrived after start time'} icon={FiClock} color="#f39c12" onClick={() => navigate('/attendance?view=late')} />
         <StatCard label="Not in" value={firstLoad ? '–' : absent} hint={onLeave ? `incl. ${onLeave} on approved leave` : 'No sign-in today'} icon={FiUserX} color="#e74c3c" onClick={() => navigate('/attendance?view=missing')} />
@@ -200,7 +200,7 @@ export default function Dashboard() {
             <button type="button" className="ga-btn" onClick={() => navigate('/attendance')}><FiActivity size={14} /> Live attendance</button>
             <button type="button" className="ga-btn" onClick={() => navigate('/reports?period=today')}><FiDownload size={14} /> Today's report</button>
             <button type="button" className="ga-btn" onClick={() => navigate('/leave')}><FiCalendar size={14} /> Leave requests</button>
-            <button type="button" className="ga-btn" onClick={() => navigate('/staff')}><FiUsers size={14} /> Manage staff</button>
+            <button type="button" className="ga-btn" onClick={() => navigate('/manage-staff')}><FiUsers size={14} /> Manage staff</button>
           </div>
         </Card>
 
@@ -243,7 +243,7 @@ export default function Dashboard() {
         </Card>
         <Card title="Today at a glance">
           {total === 0 ? (
-            <EmptyState icon={FiUsers} title="No staff yet" action={<button type="button" className="ga-btn ga-btn-primary" onClick={() => navigate('/staff/new')}>Add your first staff member</button>} />
+            <EmptyState icon={FiUsers} title="No staff yet" action={<button type="button" className="ga-btn ga-btn-primary" onClick={() => navigate('/manage-staff/new')}>Add your first staff member</button>} />
           ) : (
             <Doughnut data={doughnutData} options={{ responsive: true, cutout: '64%', plugins: { legend: { position: 'bottom' } } }} />
           )}

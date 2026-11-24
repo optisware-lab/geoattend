@@ -111,9 +111,9 @@ function App() {
         <main style={mainStyle}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/staff" element={<StaffManagement />} />
-            <Route path="/staff/new" element={<StaffForm />} />
-            <Route path="/staff/:id/edit" element={<StaffForm />} />
+            <Route path="/manage-staff" element={<StaffManagement />} />
+            <Route path="/manage-staff/new" element={<StaffForm />} />
+            <Route path="/manage-staff/:id/edit" element={<StaffForm />} />
             <Route path="/attendance" element={<AttendanceMonitor />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/leave" element={<LeaveManagement />} />

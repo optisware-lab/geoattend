@@ -8,7 +8,7 @@ import InstitutionLogo from './InstitutionLogo';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: FiHome },
-  { path: '/staff', label: 'Staff', icon: FiUsers },
+  { path: '/manage-staff', label: 'Staff', icon: FiUsers },
   { path: '/attendance', label: 'Attendance', icon: FiClock },
   { path: '/reports', label: 'Reports', icon: FiBarChart2 },
   { path: '/leave', label: 'Leave', icon: FiCalendar },
