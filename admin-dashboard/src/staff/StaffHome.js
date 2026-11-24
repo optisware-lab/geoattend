@@ -163,8 +163,17 @@ async function blockedHelp() {
   const appSteps = `Phone Settings > Apps > ${browser} > Permissions > Location > "Allow only while using the app", and turn on "Use precise location".`;
   const siteSteps = browser === 'Samsung Internet'
     ? 'In Samsung Internet tap ☰ (menu) > Settings > Sites and downloads > Site permissions > Location, and remove this site from the blocked list.'
-    : `In ${browser} tap the icon left of the web address > Permissions (or "Site settings") > Location > Allow. If you see "Reset permissions", tap it.`;
-  const siteBlocked = (await sitePermissionState()) === 'denied';
+    : `In ${browser} tap the icon left of the web address > Permissions (or "Site settings") > Location > Allow. Choose Allow even if it already says "Ask": ${browser} stops asking a site by itself after its question has been closed a few times.`;
+  const state = await sitePermissionState();
+  if (state === 'prompt') {
+    // The question was closed without an answer: asking again (on a tap) works
+    return {
+      text: `Location was not allowed. Tap "Refresh location" below and choose Allow.\n\nNo question appears? ${appSteps}`,
+      chrome: false,
+      ask: true,
+    };
+  }
+  const siteBlocked = state === 'denied';
   return {
     text: siteBlocked
       ? `Your phone's location is on, but ${browser} has blocked it for this site. To fix it:\n1. ${siteSteps}\n2. Tap "Reload and try again" and choose Allow.\n\nStill blocked? ${appSteps}`
@@ -188,18 +197,24 @@ async function getLocation() {
   try {
     return await requestPosition({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
   } catch (first) {
-    // Some phones refuse or time out on precise GPS but allow normal
-    // location (e.g. "Precise Location" off); try once more before giving up.
-    try {
-      return await requestPosition({ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
-    } catch (err) {
-      const denied = err.code === 1 || first.code === 1;
-      const help = denied ? await blockedHelp() : null;
-      const e = new Error(help ? help.text : 'Could not get your location. Turn on Location/GPS, move near a window or outside, and try again.');
-      e.denied = denied;
-      e.offerChrome = !!help?.chrome;
-      throw e;
+    let err = first;
+    // GPS can time out indoors or be unavailable while normal (network)
+    // location works, so try that once. Never ask again after a refusal:
+    // each extra question the person closes counts towards the browser
+    // blocking this site for days.
+    if (first.code !== 1) {
+      try {
+        return await requestPosition({ enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });
+      } catch (second) {
+        err = second;
+      }
     }
+    const denied = err.code === 1;
+    const help = denied ? await blockedHelp() : null;
+    const e = new Error(help ? help.text : 'Could not get your location. Make sure Location is on, move near a window or outside, then tap "Refresh location".');
+    e.denied = denied && !help?.ask; // "ask" keeps the Refresh button, which asks again
+    e.offerChrome = !!help?.chrome;
+    throw e;
   }
 }
 
@@ -235,7 +250,7 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
-function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, locationDenied, onRefreshLocation, onCheckIn, onCheckOut, busy, message, offline, pending, onSyncNow }) {
+function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, locationDenied, locationAsk, onRefreshLocation, onCheckIn, onCheckOut, busy, message, offline, pending, onSyncNow }) {
   const [confirmOut, setConfirmOut] = useState(false);
   const radius = institution?.geofenceRadius || 200;
   const distance = location && institution?.latitude != null
@@ -265,7 +280,10 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
   };
 
   let checkInHint = 'Tap to sign in with GPS';
-  if (locationError) checkInHint = 'Turn on location to sign in';
+  // The phone's location is usually on: it is the browser that needs allowing
+  if (locationDenied) checkInHint = 'Allow location for this site to sign in (see below)';
+  else if (locationError) checkInHint = 'Can\'t find your location yet. Tap to try again';
+  else if (locationAsk) checkInHint = 'Tap to share your location and sign in';
   else if (distance == null) checkInHint = 'Finding your location...';
   else if (outside) checkInHint = `You are ${distance - radius}m too far. It unlocks when you arrive.`;
 
@@ -334,6 +352,15 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
         </div>
         {locationError ? (
           <div style={{ ...st.cardDetail, color: '#c0392b', whiteSpace: 'pre-line' }}>{locationError}</div>
+        ) : locationAsk && distance == null ? (
+          // Ask only when the person taps: a question that pops up by itself
+          // tends to get closed, and browsers block a site after a few of those
+          <>
+            <div style={st.cardDetail}>To sign in, this page needs your location. Tap below, then choose <strong>Allow</strong>.</div>
+            <button type="button" style={{ ...st.outlineBtn, marginTop: 10 }} onClick={onRefreshLocation}>
+              <IoLocation size={18} /> Allow location
+            </button>
+          </>
         ) : distance == null ? (
           <div style={st.cardDetail}>Getting your location...</div>
         ) : (
@@ -358,7 +385,7 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
             )}
             <button type="button" style={{ ...st.outlineBtn, width: 'auto', flex: 1, padding: '10px 14px', fontSize: 14 }} onClick={() => window.location.reload()}>Reload and try again</button>
           </div>
-        ) : (
+        ) : !(locationAsk && distance == null) && (
           <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
         )}
       </div>
@@ -811,6 +838,7 @@ export default function StaffHome({ onSignOut }) {
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
   const [locationDenied, setLocationDenied] = useState(false); // false | true | 'chrome' (also offer Open in Chrome)
+  const [locationAsk, setLocationAsk] = useState(false); // site may ask: wait for a tap
   const locationDeniedRef = useRef(false);
   locationDeniedRef.current = locationDenied;
   const [busy, setBusy] = useState('');
@@ -952,6 +980,7 @@ export default function StaffHome({ onSignOut }) {
   const refreshLocation = useCallback(async () => {
     setLocationError('');
     setLocationDenied(false);
+    setLocationAsk(false);
     try {
       const loc = await getLocation();
       setLocation(loc);
@@ -963,26 +992,49 @@ export default function StaffHome({ onSignOut }) {
     }
   }, []);
 
-  // When the person allows location in settings, pick it up without a reload
-  // where the browser reports it (Chrome/Android; Safari ignores this).
+  /**
+   * Gets the location by itself only when this site may already use it (or
+   * the browser can't say). Otherwise waits for a tap on "Allow location" or
+   * Sign In: Chrome blocks a site for days, without telling anyone, after its
+   * location question has been closed or ignored a few times, which is how
+   * staff end up "blocked" with their phone's location switched on.
+   */
+  const startLocation = useCallback(async () => {
+    const state = await sitePermissionState();
+    if (state === 'prompt') {
+      setLocationError('');
+      setLocationDenied(false);
+      setLocationAsk(true);
+      return;
+    }
+    refreshLocation();
+  }, [refreshLocation]);
+
+  // When the person allows (or resets) location in settings, pick it up
+  // without a reload where the browser reports it (Chrome/Android).
   useEffect(() => {
     let status;
-    const onChange = () => { if (status?.state === 'granted') refreshLocation(); };
+    const onChange = () => {
+      if (status?.state === 'granted') refreshLocation();
+      else if (status?.state === 'prompt') startLocation();
+    };
     navigator.permissions?.query?.({ name: 'geolocation' })
       .then((s) => { status = s; s.addEventListener?.('change', onChange); })
       .catch(() => {});
     return () => status?.removeEventListener?.('change', onChange);
-  }, [refreshLocation]);
+  }, [refreshLocation, startLocation]);
 
   useEffect(() => {
     loadToday();
-    refreshLocation();
-  }, [loadToday, refreshLocation]);
+    startLocation();
+  }, [loadToday, startLocation]);
 
   // Follow the phone's location while the sign-in tab is open, so the
-  // Sign In button unlocks by itself the moment you reach work.
+  // Sign In button unlocks by itself the moment you reach work. Starts only
+  // once location works, so it never pops up a question of its own.
+  const haveLocation = !!location;
   useEffect(() => {
-    if (tab !== 'home' || !navigator.geolocation?.watchPosition) return undefined;
+    if (tab !== 'home' || !haveLocation || !navigator.geolocation?.watchPosition) return undefined;
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         setLocationError('');
@@ -993,7 +1045,7 @@ export default function StaffHome({ onSignOut }) {
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
     );
     return () => navigator.geolocation.clearWatch(id);
-  }, [tab]);
+  }, [tab, haveLocation]);
 
   // Coming back to the page (or the phone waking up) refreshes today's status,
   // e.g. after the automatic evening sign-out.
@@ -1009,11 +1061,12 @@ export default function StaffHome({ onSignOut }) {
       loadToday({ quiet: true });
       // Back from phone Settings: Android browsers pick up a newly allowed
       // location straight away, so try again without making them reload.
-      if (locationDeniedRef.current) refreshLocation();
+      // (A site that is merely "ask" gets the Allow button, not a pop-up.)
+      if (locationDeniedRef.current) startLocation();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [loadToday, refreshLocation]);
+  }, [loadToday, startLocation]);
 
   const afterCheckIn = (data, how) => {
     setMessage({ type: 'success', text: data.isLate ? `Signed in ${how}. You are marked as LATE.` : `Signed in ${how}. Have a good day!` });
@@ -1185,7 +1238,7 @@ export default function StaffHome({ onSignOut }) {
       {tab === 'home' && (
         <CheckInTab
           user={user} institution={institution} status={status} statusError={statusError} onRetryStatus={() => loadToday()} record={record} stats={stats} rules={rules} now={now}
-          location={location} locationError={locationError} locationDenied={locationDenied} onRefreshLocation={refreshLocation}
+          location={location} locationError={locationError} locationDenied={locationDenied} locationAsk={locationAsk} onRefreshLocation={refreshLocation}
           onCheckIn={doGpsCheckIn} onCheckOut={doCheckOut} busy={busy} message={message}
           offline={offline} pending={pending} onSyncNow={() => syncSaved({ announce: true })}
         />

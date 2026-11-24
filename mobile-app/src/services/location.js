@@ -14,6 +14,66 @@ export async function requestLocationPermission() {
   return status === 'granted';
 }
 
+/** An Error whose `code` says what to show: 'denied' | 'blocked' | 'off' | 'timeout'. */
+function locationError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  return e;
+}
+
+/**
+ * Makes sure the app may use location, asking if Android still allows asking.
+ * Throws 'blocked' when the person chose "Don't allow" for good (only phone
+ * Settings can undo it), 'denied' when they can still be asked, and 'off'
+ * when the phone's Location switch is off.
+ */
+export async function ensureLocationAccess() {
+  let perm = await Location.getForegroundPermissionsAsync();
+  if (perm.status !== 'granted' && perm.canAskAgain !== false) {
+    perm = await Location.requestForegroundPermissionsAsync();
+  }
+  if (perm.status !== 'granted') {
+    throw perm.canAskAgain === false
+      ? locationError('blocked', 'Location is not allowed for GeoAttend')
+      : locationError('denied', 'Location permission not granted');
+  }
+  const on = await Location.hasServicesEnabledAsync().catch(() => true);
+  if (!on) throw locationError('off', 'Location is turned off');
+}
+
+/**
+ * Asks Android to switch Location on (the system "Turn on location" box).
+ * Resolves true when it is on afterwards.
+ */
+export async function turnOnLocation() {
+  try {
+    await Location.enableNetworkProviderAsync();
+  } catch {
+    // Person said no, or the phone has no such box
+  }
+  return Location.hasServicesEnabledAsync().catch(() => false);
+}
+
+/**
+ * A new fix: precise GPS first, then normal accuracy. On many Android phones
+ * precise GPS fails straight away when "Google Location Accuracy" is off, even
+ * with Location on; normal accuracy still works there.
+ */
+async function freshFix() {
+  try {
+    return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+  } catch {
+    try {
+      return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+    } catch {
+      // Last resort: whatever fix the phone has, however old
+      const last = await Location.getLastKnownPositionAsync().catch(() => null);
+      if (last) return last;
+      throw locationError('timeout', 'Location unavailable');
+    }
+  }
+}
+
 function toPlain(pos) {
   return {
     latitude: pos.coords.latitude,
@@ -40,23 +100,17 @@ async function getRecentFix() {
  * otherwise a new GPS fix. Throws if none arrives within 20 seconds.
  */
 export async function getCurrentLocation({ timeoutMs = CURRENT_FIX_TIMEOUT_MS } = {}) {
-  const hasPermission = await requestLocationPermission();
-  if (!hasPermission) {
-    throw new Error('Location permission not granted');
-  }
+  await ensureLocationAccess();
 
   const recent = await getRecentFix();
   if (recent) return recent;
 
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('Location timed out')), timeoutMs);
+    timer = setTimeout(() => reject(locationError('timeout', 'Location timed out')), timeoutMs);
   });
   try {
-    const pos = await Promise.race([
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-      timeout,
-    ]);
+    const pos = await Promise.race([freshFix(), timeout]);
     return toPlain(pos);
   } finally {
     clearTimeout(timer);
@@ -84,17 +138,25 @@ export function calculateDistance(lat1, lon1, lat2, lon2) {
  * from the last 2 minutes) and returns a function that stops it.
  */
 export async function watchLocation(onChange) {
-  const hasPermission = await requestLocationPermission();
-  if (!hasPermission) return () => {};
+  // Throws like getCurrentLocation, so the screen can say what is wrong
+  await ensureLocationAccess();
   let stopped = false;
   let gotLiveFix = false;
   getRecentFix().then((fix) => { if (fix && !stopped && !gotLiveFix) onChange(fix); });
-  const sub = await Location.watchPositionAsync(
-    { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 },
-    (pos) => {
-      gotLiveFix = true;
-      if (!stopped) onChange(toPlain(pos));
-    }
-  );
+  const onPos = (pos) => {
+    gotLiveFix = true;
+    if (!stopped) onChange(toPlain(pos));
+  };
+  let sub;
+  try {
+    sub = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 }, onPos
+    );
+  } catch {
+    // Precise GPS refused (e.g. "Google Location Accuracy" off): follow at normal accuracy
+    sub = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: 10000, distanceInterval: 10 }, onPos
+    );
+  }
   return () => { stopped = true; sub.remove(); };
 }

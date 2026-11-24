@@ -1,13 +1,35 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator,
-  RefreshControl, ScrollView, Platform, AppState,
+  RefreshControl, ScrollView, Platform, AppState, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Updates from 'expo-updates';
-import { getCurrentLocation, calculateDistance, watchLocation } from '../services/location';
+import { getCurrentLocation, calculateDistance, watchLocation, turnOnLocation } from '../services/location';
+
+// What is stopping the app getting a location, in words staff can act on,
+// and the button that fixes it. "Location is on" in quick settings is not
+// enough: Android must also allow GeoAttend to use it.
+const LOCATION_ISSUES = {
+  denied: {
+    text: 'GeoAttend needs your location to sign you in. Tap below and choose "While using the app".',
+    button: 'Allow location',
+  },
+  blocked: {
+    text: 'Your phone\'s location may be on, but Android is not letting GeoAttend use it. Tap below, then Permissions > Location > "Allow only while using the app", and turn on "Use precise location". Then come back here.',
+    button: 'Open Settings',
+  },
+  off: {
+    text: 'Your phone\'s Location is switched off.',
+    button: 'Turn on location',
+  },
+  timeout: {
+    text: 'Can\'t find your location yet. Step outside or near a window, then try again.',
+    button: 'Try again',
+  },
+};
 import { checkIn, checkOut, getTodayStatus, getWeeklyStats, postGeofenceEvent, getAttendanceRules, RULES_KEY } from '../services/api';
 import { formatDateLong, formatTime, formatDuration } from '../services/format';
 import { addToQueue, syncQueue, getQueueLength, getPendingStatus, isOnline, isOnlineState } from '../services/offlineQueue';
@@ -110,6 +132,12 @@ export default function HomeScreen() {
   const serverUnreachable = useRef(false);
   const [record, setRecord] = useState(null);
   const [location, setLocation] = useState(null);
+  // Why there is no location: 'denied' | 'blocked' | 'off' | 'timeout' | null
+  const [locationIssue, setLocationIssue] = useState(null);
+  const locationIssueRef = useRef(null);
+  locationIssueRef.current = locationIssue;
+  // Bumped to restart following the location once a problem is fixed
+  const [watchKey, setWatchKey] = useState(0);
   const [distance, setDistance] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -243,12 +271,49 @@ export default function HomeScreen() {
       // status and sends anything saved offline
       refreshStatus();
       runSyncRef.current?.();
-      watchLocation((loc) => { if (!cancelled) setLocation(loc); })
+      watchLocation((loc) => {
+        if (cancelled) return;
+        setLocation(loc);
+        setLocationIssue(null);
+      })
         .then((fn) => { if (cancelled) fn(); else stop = fn; })
-        .catch(() => {});
+        .catch((e) => { if (!cancelled) setLocationIssue(e?.code || 'timeout'); });
       return () => { cancelled = true; stop(); };
-    }, [refreshStatus])
+    }, [refreshStatus, watchKey])
   );
+
+  /** Gets the location once; on failure records why, for the location card. */
+  const locate = useCallback(() => getCurrentLocation()
+    .then((loc) => {
+      setLocation(loc);
+      if (locationIssueRef.current) setWatchKey((k) => k + 1); // fixed: follow it live again
+      setLocationIssue(null);
+      return loc;
+    })
+    .catch((e) => {
+      setLocationIssue(e?.code || 'timeout');
+      return null;
+    }), []);
+
+  /** The location card's button: does what the current problem needs. */
+  const fixLocation = async () => {
+    if (locationIssue === 'blocked') {
+      Linking.openSettings(); // checked again when they come back (AppState below)
+      return;
+    }
+    if (locationIssue === 'off') await turnOnLocation();
+    setLocationIssue(null);
+    locate();
+  };
+
+  // Back from phone Settings: try again, so allowing location there just works.
+  // ('denied' waits for a tap: retrying it would pop the question up again.)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && ['blocked', 'off', 'timeout'].includes(locationIssueRef.current)) locate();
+    });
+    return () => sub.remove();
+  }, [locate]);
 
   const reportSync = useCallback((result) => {
     if (result.synced > 0) {
@@ -287,7 +352,7 @@ export default function HomeScreen() {
 
     // Without internet the phone finds itself by GPS only, which can take a
     // while: never hold the rest of the screen up for it
-    getCurrentLocation().then(setLocation).catch(() => {});
+    locate();
 
     // Work hours: show the saved copy at once (works offline), then refresh
     AsyncStorage.getItem(RULES_KEY)
@@ -318,7 +383,7 @@ export default function HomeScreen() {
     }
 
     setPendingSync(await getQueueLength().catch(() => 0));
-  }, [runSync, refreshStatus]);
+  }, [runSync, refreshStatus, locate]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -536,9 +601,13 @@ export default function HomeScreen() {
   };
 
   let checkInHint = t('gpsVerification');
-  if (!location) {
+  if (!location && (locationIssue === 'denied' || locationIssue === 'blocked')) {
+    checkInHint = 'Allow GeoAttend to use your location (see below)';
+  } else if (!location && locationIssue === 'off') {
+    checkInHint = 'Turn on Location to sign in (see below)';
+  } else if (!location) {
     checkInHint = online
-      ? 'Finding your location... (turn on GPS)'
+      ? 'Finding your location...'
       : 'No internet, so GPS only: can take a minute. Step outside or near a window.';
   }
   else if (institution && distance !== null && !isWithin) checkInHint = `${distance - radius}m too far. Unlocks when you arrive.`;
@@ -679,6 +748,19 @@ export default function HomeScreen() {
                 {location?.accuracy ? ` · GPS ±${Math.round(location.accuracy)}m` : ''}
               </Text>
             </>
+          ) : locationIssue && LOCATION_ISSUES[locationIssue] ? (
+            <>
+              <Text style={[styles.cardDetail, { color: '#c0392b' }]}>{LOCATION_ISSUES[locationIssue].text}</Text>
+              <TouchableOpacity
+                style={[styles.locationFixBtn, { borderColor: theme.primary || '#1a5276' }]}
+                onPress={fixLocation}
+                accessibilityRole="button"
+              >
+                <Text style={[styles.locationFixText, { color: theme.primary || '#1a5276' }]}>
+                  {LOCATION_ISSUES[locationIssue].button}
+                </Text>
+              </TouchableOpacity>
+            </>
           ) : (
             <Text style={[styles.cardDetail, { color: theme.textSecondary }]}>{t('gettingLocation')}</Text>
           )}
@@ -818,6 +900,8 @@ const styles = StyleSheet.create({
   cardLabel: { fontSize: 11, fontWeight: '700', color: '#95a5a6', letterSpacing: 0.5, marginBottom: 6 },
   cardValue: { fontSize: 18, fontWeight: '700', color: '#2c3e50' },
   cardDetail: { fontSize: 13, color: '#7f8c8d', marginTop: 4 },
+  locationFixBtn: { marginTop: 10, borderWidth: 2, borderRadius: 10, paddingVertical: 10, alignItems: 'center' },
+  locationFixText: { fontSize: 15, fontWeight: '700' },
   statsContainer: {
     backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
