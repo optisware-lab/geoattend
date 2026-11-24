@@ -85,20 +85,56 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-function getLocation() {
+const UA = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+// Links opened from WhatsApp, Facebook, Instagram etc. run inside that app's
+// own browser, which needs that app's location permission, not the phone's.
+const IN_APP_BROWSER = /WhatsApp|FBAN|FBAV|FB_IAB|Instagram|Line\/|Twitter|Snapchat|TikTok|musical_ly|; wv\)/i.test(UA);
+const IS_IOS_UA = /iphone|ipad|ipod/i.test(UA) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+
+function blockedMessage() {
+  if (IN_APP_BROWSER) {
+    return 'Location is blocked inside this app\'s browser. Open this page in '
+      + (IS_IOS_UA ? 'Safari' : 'Chrome')
+      + ' instead (tap the ⋮ or share menu > "Open in browser"), then sign in there.';
+  }
+  if (IS_IOS_UA) {
+    return 'Your phone\'s location is on, but Safari is blocking it for this site. To allow it:\n'
+      + '1. Settings > Privacy & Security > Location Services > Safari Websites > "While Using the App".\n'
+      + '2. In Safari, tap "aA" (or the page menu) in the address bar > Website Settings > Location > Allow.\n'
+      + '3. Come back and tap "Reload and try again" below.';
+  }
+  return 'Your phone\'s location is on, but the browser is blocking it for this site. To allow it:\n'
+    + '1. Tap the lock/settings icon next to the web address > Permissions > Location > Allow.\n'
+    + '2. Phone Settings > Apps > Chrome (or your browser) > Permissions > Location > Allow.\n'
+    + '3. Come back and tap "Reload and try again" below.';
+}
+
+function requestPosition(options) {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('This browser cannot share your location.'));
-      return;
-    }
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
-      (err) => reject(new Error(err.code === 1
-        ? 'Location is blocked. Allow location for this site (iPhone: Settings > Privacy & Security > Location Services > Safari Websites > While Using), then try again.'
-        : 'Could not get your location. Turn on Location/GPS and try again.')),
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+      reject,
+      options
     );
   });
+}
+
+async function getLocation() {
+  if (!navigator.geolocation) throw new Error('This browser cannot share your location.');
+  try {
+    return await requestPosition({ enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  } catch (first) {
+    // Some phones refuse or time out on precise GPS but allow normal
+    // location (e.g. "Precise Location" off); try once more before giving up.
+    try {
+      return await requestPosition({ enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+    } catch (err) {
+      const denied = err.code === 1 || first.code === 1;
+      const e = new Error(denied ? blockedMessage() : 'Could not get your location. Turn on Location/GPS, move near a window or outside, and try again.');
+      e.denied = denied;
+      throw e;
+    }
+  }
 }
 
 /** Today's record from the server/last save, updated with times saved offline. */
@@ -133,7 +169,7 @@ function clockToday(hhmmss, base) {
   return d;
 }
 
-function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, onRefreshLocation, onCheckIn, onCheckOut, busy, message, offline, pending, onSyncNow }) {
+function CheckInTab({ user, institution, status, statusError, onRetryStatus, record, stats, rules, now, location, locationError, locationDenied, onRefreshLocation, onCheckIn, onCheckOut, busy, message, offline, pending, onSyncNow }) {
   const [confirmOut, setConfirmOut] = useState(false);
   const radius = institution?.geofenceRadius || 200;
   const distance = location && institution?.latitude != null
@@ -231,7 +267,7 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
           )}
         </div>
         {locationError ? (
-          <div style={{ ...st.cardDetail, color: '#c0392b' }}>{locationError}</div>
+          <div style={{ ...st.cardDetail, color: '#c0392b', whiteSpace: 'pre-line' }}>{locationError}</div>
         ) : distance == null ? (
           <div style={st.cardDetail}>Getting your location...</div>
         ) : (
@@ -248,7 +284,12 @@ function CheckInTab({ user, institution, status, statusError, onRetryStatus, rec
             )}
           </>
         )}
-        <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
+        {locationDenied ? (
+          // Browsers remember a refusal until the page reloads, so a plain retry can't succeed
+          <button type="button" style={st.textLink} onClick={() => window.location.reload()}>Reload and try again</button>
+        ) : (
+          <button type="button" style={st.textLink} onClick={onRefreshLocation}>Refresh location</button>
+        )}
       </div>
 
       <div style={st.card(C.blue)}>
@@ -698,6 +739,7 @@ export default function StaffHome({ onSignOut }) {
   const [pending, setPending] = useState(() => queueLength(userId));
   const [location, setLocation] = useState(null);
   const [locationError, setLocationError] = useState('');
+  const [locationDenied, setLocationDenied] = useState(false);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null);
   // What a sign-in must include (from today's status); photo on unless the admin turned it off
@@ -836,15 +878,28 @@ export default function StaffHome({ onSignOut }) {
 
   const refreshLocation = useCallback(async () => {
     setLocationError('');
+    setLocationDenied(false);
     try {
       const loc = await getLocation();
       setLocation(loc);
       return loc;
     } catch (err) {
       setLocationError(err.message);
+      setLocationDenied(!!err.denied);
       return null;
     }
   }, []);
+
+  // When the person allows location in settings, pick it up without a reload
+  // where the browser reports it (Chrome/Android; Safari ignores this).
+  useEffect(() => {
+    let status;
+    const onChange = () => { if (status?.state === 'granted') refreshLocation(); };
+    navigator.permissions?.query?.({ name: 'geolocation' })
+      .then((s) => { status = s; s.addEventListener?.('change', onChange); })
+      .catch(() => {});
+    return () => status?.removeEventListener?.('change', onChange);
+  }, [refreshLocation]);
 
   useEffect(() => {
     loadToday();
@@ -858,6 +913,7 @@ export default function StaffHome({ onSignOut }) {
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         setLocationError('');
+        setLocationDenied(false);
         setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy });
       },
       () => { /* the one-off refresh above already explains location errors */ },
@@ -1053,7 +1109,7 @@ export default function StaffHome({ onSignOut }) {
       {tab === 'home' && (
         <CheckInTab
           user={user} institution={institution} status={status} statusError={statusError} onRetryStatus={() => loadToday()} record={record} stats={stats} rules={rules} now={now}
-          location={location} locationError={locationError} onRefreshLocation={refreshLocation}
+          location={location} locationError={locationError} locationDenied={locationDenied} onRefreshLocation={refreshLocation}
           onCheckIn={doGpsCheckIn} onCheckOut={doCheckOut} busy={busy} message={message}
           offline={offline} pending={pending} onSyncNow={() => syncSaved({ announce: true })}
         />
