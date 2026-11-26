@@ -1,6 +1,6 @@
 const pool = require('../config/database');
 
-const DEFAULT_TRIAL_DAYS = parseInt(process.env.TRIAL_DURATION_DAYS || '28', 10);
+const DEFAULT_TRIAL_DAYS = parseInt(process.env.TRIAL_DURATION_DAYS || '30', 10);
 
 function normalizeInstitutionCode(code) {
   return String(code || '').trim().toUpperCase();

@@ -89,7 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 
 -- Ensure every institution has at least one subscription row (default trial)
 INSERT INTO subscriptions (institution_id, plan_name, status, trial_start, trial_end)
-SELECT i.id, 'trial', 'trialing', NOW(), NOW() + INTERVAL '28 days'
+SELECT i.id, 'trial', 'trialing', NOW(), NOW() + INTERVAL '30 days'
 FROM institutions i
 WHERE NOT EXISTS (
   SELECT 1 FROM subscriptions s WHERE s.institution_id = i.id

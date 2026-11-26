@@ -213,7 +213,7 @@ async function runAutoMigration(client) {
     `CREATE INDEX IF NOT EXISTS idx_subscriptions_institution ON subscriptions(institution_id)`,
     `CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status)`,
     `INSERT INTO subscriptions (institution_id, plan_name, status, trial_start, trial_end)
-     SELECT i.id, 'trial', 'trialing', NOW(), NOW() + INTERVAL '28 days'
+     SELECT i.id, 'trial', 'trialing', NOW(), NOW() + INTERVAL '30 days'
      FROM institutions i
      WHERE NOT EXISTS (
        SELECT 1 FROM subscriptions s WHERE s.institution_id = i.id

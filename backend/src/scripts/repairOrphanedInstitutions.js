@@ -104,7 +104,7 @@ async function repairInstitution(inst, client) {
     if (subCheck.rows.length === 0) {
       await client.query(
         `INSERT INTO subscriptions (institution_id, plan_name, status, trial_start, trial_end)
-         VALUES ($1, 'trial', 'trialing', NOW(), NOW() + INTERVAL '28 days')`,
+         VALUES ($1, 'trial', 'trialing', NOW(), NOW() + INTERVAL '30 days')`,
         [inst.id]
       );
       console.log(`  ✅ Trial subscription created`);
